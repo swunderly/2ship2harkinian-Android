@@ -451,11 +451,10 @@ void AddSettings() {
                 WIDGET_CVAR_COMBOBOX,
                 { .defaultVariant = COLOR_INDIGO, .comboBoxOptions = menuThemeOptions } },
 #if not defined(__SWITCH__) and not defined(__WIIU__)
-              { "Menubar Controller Navigation", CVAR_IMGUI_CONTROLLER_NAV,
-                "Allows controller navigation of the SOH menu bar (Settings, Enhancements,...)\nCAUTION: "
+              { "Menu Controller Navigation", CVAR_IMGUI_CONTROLLER_NAV,
+                "Allows controller navigation of the 2Ship menu (Settings, Enhancements,...)\nCAUTION: "
                 "This will disable game inputs while the menu is visible.\n\nD-pad to move between "
-                "items, A to select, B to move up in scope. DEV NOTE: SDL is weird currently, pad button only "
-                "works with menubar open.",
+                "items, A to select, B to move up in scope.",
                 WIDGET_CVAR_CHECKBOX },
               { "Cursor Always Visible",
                 "gSettings.CursorVisibility",
