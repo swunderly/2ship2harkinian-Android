@@ -863,6 +863,7 @@ public class MainActivity extends SDLActivity{
 
     public native void attachController();
     public native void detachController();
+    public native void nativeGamepadBackPressed();
     // Native method for setting button state
     public native void setButton(int button, boolean value);
     public native void setCameraState(int axis, float value);
@@ -950,7 +951,14 @@ public class MainActivity extends SDLActivity{
         addTouchListener(buttonZR, ControllerButtons.AXIS_RT);
 
         addTouchListener(buttonStart, ControllerButtons.BUTTON_START); // SDL Button 7 (Start)
-        addTouchListener(buttonBack, ControllerButtons.BUTTON_BACK); // SDL Button 6 (Back)
+        // Send touch Back directly to the menu. ImGui may be polling a physical
+        // controller instead of the touch overlay's virtual SDL controller.
+        buttonBack.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                nativeGamepadBackPressed();
+            }
+            return true;
+        });
 
 
         setupFloatingJoystick(leftScreenArea);
