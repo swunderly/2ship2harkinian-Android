@@ -2,6 +2,15 @@ name: Android Release APK
 
 on:
   workflow_dispatch:
+    inputs:
+      install_target:
+        description: Package identity to build
+        required: true
+        default: test
+        type: choice
+        options:
+          - test
+          - production
   push:
     branches:
       - android
@@ -129,11 +138,16 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease
+        run: |
+          app_id_args=()
+          if [[ '${{ github.event_name }}' == 'workflow_dispatch' && '${{ inputs.install_target }}' == 'test' ]]; then
+            app_id_args+=('-PtwoShipApplicationId=com.twoshipfork.mm.touchcontroltest')
+          fi
+          ./gradlew :app:assembleRelease "${app_id_args[@]}"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: app-release.apk
+          name: 2Ship-Android-${{ github.event_name == 'workflow_dispatch' && inputs.install_target || 'production' }}
           path: Android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14

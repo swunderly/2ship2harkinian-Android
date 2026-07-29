@@ -37,6 +37,12 @@ extern std::unordered_map<s16, const char*> warpPointSceneList;
 extern void Warp();
 
 #if defined(__ANDROID__)
+static const std::unordered_map<int32_t, const char*> touchFaceButtonLayoutMap = {
+    { 0, "ABXY (Nintendo)" },
+    { 1, "BAYX (Xbox)" },
+    { 2, "GC Layout" },
+};
+
 static void ApplyAndroidMenuScale(float scale) {
     if (scale < 1.0f) {
         scale = 1.0f;
@@ -71,6 +77,24 @@ static void SetAndroidTouchControlsDisabled(bool disabled) {
         env->CallVoidMethod(activity, setTouchControlsMethod, disabled ? JNI_TRUE : JNI_FALSE);
     }
     env->DeleteLocalRef(activityClass);
+}
+
+static void SetAndroidTouchFaceButtonLayout(int32_t layout) {
+    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        return;
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    if (activityClass != nullptr) {
+        jmethodID method =
+            env->GetMethodID(activityClass, "setTouchFaceButtonLayoutFromNative", "(I)V");
+        if (method != nullptr) {
+            env->CallVoidMethod(activity, method, static_cast<jint>(layout));
+        }
+        env->DeleteLocalRef(activityClass);
+    }
 }
 #endif
 
@@ -402,6 +426,18 @@ void BenMenu::AddSettings() {
                      .Tooltip("Adjusts the size of the Android menu."));
 #endif
 #if defined(__ANDROID__)
+    AddWidget(path, "Touch Face Buttons", WIDGET_CVAR_COMBOBOX)
+        .CVar("gSettings.TouchControls.FaceButtonLayout")
+        .Callback([](WidgetInfo& info) {
+            SetAndroidTouchFaceButtonLayout(
+                CVarGetInteger("gSettings.TouchControls.FaceButtonLayout", 0));
+        })
+        .Options(ComboboxOptions()
+                     .ComboMap(&touchFaceButtonLayoutMap)
+                     .DefaultIndex(0)
+                     .Tooltip("Choose ABXY (Nintendo), BAYX (Xbox), or GC Layout touch-button placement."));
+    SetAndroidTouchFaceButtonLayout(
+        CVarGetInteger("gSettings.TouchControls.FaceButtonLayout", 0));
     AddWidget(path, "Disable Touch Controls", WIDGET_CVAR_CHECKBOX)
         .CVar("gSettings.TouchControls.Disabled")
         .Callback([](WidgetInfo& info) {

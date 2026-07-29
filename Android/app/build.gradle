@@ -20,7 +20,7 @@ android {
     compileSdkVersion 33
     defaultConfig {
         if (buildAsApplication) {
-            applicationId "com.twoshipfork.mm"
+            applicationId project.findProperty('twoShipApplicationId') ?: "com.twoshipfork.mm"
             namespace("com.twoshipfork.mm")
         }
         minSdkVersion 24
