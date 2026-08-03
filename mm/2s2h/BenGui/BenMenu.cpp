@@ -96,6 +96,23 @@ static void SetAndroidTouchFaceButtonLayout(int32_t layout) {
         env->DeleteLocalRef(activityClass);
     }
 }
+
+static void SetAndroidTouchLeftStickFloating(bool floating) {
+    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        return;
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    if (activityClass != nullptr) {
+        jmethodID method = env->GetMethodID(activityClass, "setTouchLeftStickFloatingFromNative", "(Z)V");
+        if (method != nullptr) {
+            env->CallVoidMethod(activity, method, floating ? JNI_TRUE : JNI_FALSE);
+        }
+        env->DeleteLocalRef(activityClass);
+    }
+}
 #endif
 
 #if defined(__ANDROID__)
@@ -425,26 +442,6 @@ void BenMenu::AddSettings() {
                      .Format("%.2f")
                      .Tooltip("Adjusts the size of the Android menu."));
 #endif
-#if defined(__ANDROID__)
-    AddWidget(path, "Touch Face Buttons", WIDGET_CVAR_COMBOBOX)
-        .CVar("gSettings.TouchControls.FaceButtonLayout")
-        .Callback([](WidgetInfo& info) {
-            SetAndroidTouchFaceButtonLayout(
-                CVarGetInteger("gSettings.TouchControls.FaceButtonLayout", 0));
-        })
-        .Options(ComboboxOptions()
-                     .ComboMap(&touchFaceButtonLayoutMap)
-                     .DefaultIndex(0)
-                     .Tooltip("Choose ABXY (Nintendo), BAYX (Xbox), or GC Layout touch-button placement."));
-    SetAndroidTouchFaceButtonLayout(
-        CVarGetInteger("gSettings.TouchControls.FaceButtonLayout", 0));
-    AddWidget(path, "Disable Touch Controls", WIDGET_CVAR_CHECKBOX)
-        .CVar("gSettings.TouchControls.Disabled")
-        .Callback([](WidgetInfo& info) {
-            SetAndroidTouchControlsDisabled(CVarGetInteger("gSettings.TouchControls.Disabled", 0) != 0);
-        })
-        .Options(CheckboxOptions().Tooltip("Hides the Android touch controls and eye button."));
-#endif
 #if not defined(__SWITCH__) and not defined(__WIIU__)
     AddWidget(path, "Menu Controller Navigation", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_IMGUI_CONTROLLER_NAV)
@@ -722,6 +719,40 @@ void BenMenu::AddSettings() {
         .CVar("gWindows.BenInputEditor")
         .WindowName("2S2H Input Editor")
         .Options(ButtonOptions().Tooltip("Enables the separate Bindings Window.").Size(Sizes::Inline));
+
+#if defined(__ANDROID__)
+    path.sidebarName = "Touch Controls";
+    path.column = SECTION_COLUMN_1;
+    AddSidebarEntry("Settings", "Touch Controls", 2);
+    AddWidget(path, "Touch Face Buttons", WIDGET_CVAR_COMBOBOX)
+        .CVar("gSettings.TouchControls.FaceButtonLayout")
+        .Callback([](WidgetInfo& info) {
+            SetAndroidTouchFaceButtonLayout(
+                CVarGetInteger("gSettings.TouchControls.FaceButtonLayout", 0));
+        })
+        .Options(ComboboxOptions()
+                     .ComboMap(&touchFaceButtonLayoutMap)
+                     .DefaultIndex(0)
+                     .Tooltip("Choose ABXY (Nintendo), BAYX (Xbox), or GC Layout touch-button placement."));
+    SetAndroidTouchFaceButtonLayout(
+        CVarGetInteger("gSettings.TouchControls.FaceButtonLayout", 0));
+    AddWidget(path, "Floating Left Stick", WIDGET_CVAR_CHECKBOX)
+        .CVar("gSettings.TouchControls.FloatingLeftStick")
+        .Callback([](WidgetInfo& info) {
+            SetAndroidTouchLeftStickFloating(
+                CVarGetInteger("gSettings.TouchControls.FloatingLeftStick", 1) != 0);
+        })
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
+            "When disabled, the left touch stick stays fixed in the lower-left corner."));
+    SetAndroidTouchLeftStickFloating(
+        CVarGetInteger("gSettings.TouchControls.FloatingLeftStick", 1) != 0);
+    AddWidget(path, "Disable Touch Controls", WIDGET_CVAR_CHECKBOX)
+        .CVar("gSettings.TouchControls.Disabled")
+        .Callback([](WidgetInfo& info) {
+            SetAndroidTouchControlsDisabled(CVarGetInteger("gSettings.TouchControls.Disabled", 0) != 0);
+        })
+        .Options(CheckboxOptions().Tooltip("Hides the Android touch controls and eye button."));
+#endif
 
     path.sidebarName = "Overlay";
     path.column = SECTION_COLUMN_1;
