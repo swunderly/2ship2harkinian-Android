@@ -3,8 +3,8 @@ def buildAsApplication = !buildAsLibrary
 def repoRoot = rootProject.projectDir.parentFile
 def androidVcpkgRoot = System.getenv("VCPKG_ROOT") ?: new File(repoRoot, "build/vcpkg").absolutePath
 def androidVcpkgRootArg = androidVcpkgRoot.replace('\\', '/')
-def androidAppVersionCode = 4000209
-def androidAppVersionName = "4.0.2-android.3.6"
+def androidAppVersionCode = 4000210
+def androidAppVersionName = "4.0.2-android.3.7"
 if (buildAsApplication) {
     apply plugin: 'com.android.application'
 }
