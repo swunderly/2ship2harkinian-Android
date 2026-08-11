@@ -24,6 +24,11 @@ static const ALIGN_ASSET(2) char gShipLogoDL[] = dgShipLogoDL;
 #define dgLUSLogoTextTex "__OTR__misc/nintendo_rogo_static/gLUSLogoTextTex"
 static const ALIGN_ASSET(2) char gLUSLogoTextTex[] = dgLUSLogoTextTex;
 
+typedef enum {
+    CONSOLE_LOGO_PHASE_LUS,
+    CONSOLE_LOGO_PHASE_AUTHENTIC,
+} ConsoleLogoPhase;
+
 const char* GetGameVersionString() {
     uint32_t gameVersion = ResourceMgr_GetGameVersion(0);
     switch (gameVersion) {
@@ -97,6 +102,15 @@ void ConsoleLogo_UpdateCounters(ConsoleLogoState* this) {
     this->ult++;
 }
 
+void ConsoleLogo_ResetCounters(ConsoleLogoState* this) {
+    this->ult = 0;
+    this->timer = 20;
+    this->coverAlpha = 255;
+    this->addAlpha = -12;
+    this->visibleDuration = 60;
+    this->exit = false;
+}
+
 void ConsoleLogo_RenderView(ConsoleLogoState* this, f32 x, f32 y, f32 z) {
     View* view = &this->view;
     Vec3f eye;
@@ -128,7 +142,10 @@ void ConsoleLogo_Draw(GameState* thisx) {
     char* logoDL = gNintendo64LogoNDL;
     char* logoText = gNintendo64LogoTextTex;
 
-    if (!CVarGetInteger("gEnhancements.Graphics.AuthenticLogo", 0)) {
+    bool authenticLogo =
+        CVarGetInteger("gEnhancements.Graphics.AuthenticLogo", 0) || this->logoPhase == CONSOLE_LOGO_PHASE_AUTHENTIC;
+
+    if (!authenticLogo) {
         logoDL = gShipLogoDL;
         logoText = gLUSLogoTextTex;
     }
@@ -158,7 +175,7 @@ void ConsoleLogo_Draw(GameState* thisx) {
     Matrix_RotateZYX(0, sTitleRotation, 0, MTXMODE_APPLY);
 
     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, this->state.gfxCtx);
-    gSPDisplayList(POLY_OPA_DISP++, gNintendo64LogoNDL);
+    gSPDisplayList(POLY_OPA_DISP++, logoDL);
 
     Gfx_SetupDL39_Opa(this->state.gfxCtx);
 
@@ -185,9 +202,11 @@ void ConsoleLogo_Draw(GameState* thisx) {
                             1 << 10, 1 << 10);
     }
 
-    if (!CVarGetInteger("gEnhancements.Graphics.AuthenticLogo", 0)) {
+#if !defined(__ANDROID__)
+    if (!authenticLogo) {
         ConsoleLogo_PrintBuildInfo(this);
     }
+#endif
 
     Environment_FillScreen(this->state.gfxCtx, 0, 0, 0, this->coverAlpha, FILL_SCREEN_XLU);
 
@@ -211,12 +230,19 @@ void ConsoleLogo_Main(GameState* thisx) {
     FrameInterpolation_StopRecord();
 
     if (this->exit) {
-        gSaveContext.seqId = NA_BGM_DISABLED;
-        gSaveContext.ambienceId = AMBIENCE_ID_DISABLED;
-        gSaveContext.gameMode = GAMEMODE_TITLE_SCREEN;
+        bool authenticLogo = CVarGetInteger("gEnhancements.Graphics.AuthenticLogo", 0);
 
-        STOP_GAMESTATE(&this->state);
-        SET_NEXT_GAMESTATE(&this->state, TitleSetup_Init, sizeof(TitleSetupState));
+        if (!authenticLogo && this->logoPhase == CONSOLE_LOGO_PHASE_LUS) {
+            this->logoPhase = CONSOLE_LOGO_PHASE_AUTHENTIC;
+            ConsoleLogo_ResetCounters(this);
+        } else {
+            gSaveContext.seqId = NA_BGM_DISABLED;
+            gSaveContext.ambienceId = AMBIENCE_ID_DISABLED;
+            gSaveContext.gameMode = GAMEMODE_TITLE_SCREEN;
+
+            STOP_GAMESTATE(&this->state);
+            SET_NEXT_GAMESTATE(&this->state, TitleSetup_Init, sizeof(TitleSetupState));
+        }
     }
 
     GameInteractor_ExecuteOnConsoleLogoUpdate();
@@ -246,7 +272,8 @@ void ConsoleLogo_Init(GameState* thisx) {
 
     this->state.main = ConsoleLogo_Main;
     this->state.destroy = ConsoleLogo_Destroy;
-    this->exit = false;
+    this->logoPhase = CVarGetInteger("gEnhancements.Graphics.AuthenticLogo", 0) ? CONSOLE_LOGO_PHASE_AUTHENTIC
+                                                                                : CONSOLE_LOGO_PHASE_LUS;
 
     // #region 2S2H [Debug] This value is set to indicate no controllers are connected, not only
     // do we not need this, but it conflicts with us wanting to load the debug file on the map select at boot.
@@ -259,9 +286,5 @@ void ConsoleLogo_Init(GameState* thisx) {
 
     gSaveContext.flashSaveAvailable = true;
     Sram_Alloc(thisx, &this->sramCtx);
-    this->ult = 0;
-    this->timer = 20;
-    this->coverAlpha = 255;
-    this->addAlpha = -12;
-    this->visibleDuration = 60;
+    ConsoleLogo_ResetCounters(this);
 }

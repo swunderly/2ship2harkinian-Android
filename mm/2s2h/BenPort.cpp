@@ -70,6 +70,14 @@ CrowdControl* CrowdControl::Instance;
 #include "2s2h/PresetManager/PresetManager.h"
 #include "2s2h/config/ConfigUpdaters.h"
 
+#ifdef __ANDROID__
+extern "C" void Android_SetDataRootPath(const char* path) {
+    if (path != nullptr) {
+        Ship::Context::SetAndroidDataRootPath(path);
+    }
+}
+#endif
+
 // Resource Types/Factories
 #include <ship/resource/type/Blob.h>
 #include <fast/resource/type/DisplayList.h>

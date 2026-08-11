@@ -657,9 +657,13 @@ nlohmann::json voyage3PresetJ = R"(
 )"_json;
 
 std::unordered_map<std::string, std::pair<nlohmann::json, std::set<std::string>>> presets = {};
-const std::filesystem::path presetsFolderPath(Ship::Context::GetPathRelativeToAppDirectory("presets", appShortName));
+
+static std::filesystem::path PresetManager_GetPresetsFolderPath() {
+    return Ship::Context::GetPathRelativeToAppDirectory("presets", appShortName);
+}
 
 void PresetManager_RefreshPresets() {
+    const std::filesystem::path presetsFolderPath = PresetManager_GetPresetsFolderPath();
     presets.clear();
     presets.insert(
         { "Defaults (Everything Off)", { defaultsPresetJ, { "Developer Tools", "Enhancements", "HUD", "Rando" } } });
@@ -791,6 +795,7 @@ void PresetManager_ApplyPreset(nlohmann::json j) {
 // Copies 2ship2harkinian.json to the presets folder, then removes everything except the CVars block
 void PresetManager_CreatePreset(std::string presetName) {
     try {
+        const std::filesystem::path presetsFolderPath = PresetManager_GetPresetsFolderPath();
         std::ifstream existingFileStream(Ship::Context::GetPathRelativeToAppDirectory("2ship2harkinian.json"));
 
         nlohmann::json existingJson;
@@ -844,6 +849,7 @@ bool PresetManager_ApplyPresetByName(const std::string& name) {
 
 bool PresetManager_HandleFileDropped(char* filePath) {
     try {
+        const std::filesystem::path presetsFolderPath = PresetManager_GetPresetsFolderPath();
         std::ifstream fileStream(filePath);
 
         if (!fileStream.is_open()) {
@@ -882,7 +888,8 @@ bool PresetManager_HandleFileDropped(char* filePath) {
 }
 
 void PresetManager_Draw() {
-    ImGui::BeginChild("PresetManager", ImVec2(500, 0));
+    const std::filesystem::path presetsFolderPath = PresetManager_GetPresetsFolderPath();
+    ImGui::BeginChild("PresetManager", ImVec2(0, 0));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 0.5f));
     ImGui::TextWrapped("Drag and drop a preset file into the window to load it, or drop it into the presets folder and "
                        "refresh the list.");
@@ -926,8 +933,10 @@ void PresetManager_Draw() {
         auto lastGroupPos = ImGui::GetCursorPosY();
         // Vertically align to center, horizontally align to the right
         ImGui::BeginGroup();
-        ImGui::SetCursorPos({ ImGui::GetContentRegionAvail().x - 80, lastGroupPos - (lastGroupSize.y / 2) - 22 });
-        if (UIWidgets::Button("Apply", { .color = UIWidgets::Colors::Orange })) {
+        constexpr float applyButtonWidth = 96.0f;
+        ImGui::SetCursorPos({ ImGui::GetWindowContentRegionMax().x - applyButtonWidth,
+                              lastGroupPos - (lastGroupSize.y / 2) - 22 });
+        if (UIWidgets::Button("Apply", { .size = ImVec2(applyButtonWidth, 0), .color = UIWidgets::Colors::Orange })) {
             clickedPreset = preset;
         }
         ImGui::EndGroup();

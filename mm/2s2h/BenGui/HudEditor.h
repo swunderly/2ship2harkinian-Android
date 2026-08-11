@@ -1,8 +1,11 @@
 #pragma once
 
+#include <libultraship/libultraship.h>
+
 #ifdef __cplusplus
-#include <ship/window/gui/GuiWindow.h>
+
 #include "UIWidgets.hpp"
+#include <unordered_map>
 #include "CosmeticEditor.h"
 
 class HudEditorWindow : public Ship::GuiWindow {

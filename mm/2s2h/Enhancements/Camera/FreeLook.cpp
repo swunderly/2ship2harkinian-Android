@@ -2,6 +2,9 @@
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/ShipInit.hpp"
 #include "CameraUtils.h"
+#ifdef __ANDROID__
+#include "ship/port/mobile/MobileImpl.h"
+#endif
 
 extern "C" {
 #include "macros.h"
@@ -46,7 +49,7 @@ void UpdateFreeLookState(Camera* camera) {
             sCanFreeLook = false;
     }
 }
-
+#include <SDL2/SDL.h>
 // Function based on several camera functions, including Camera_Parallel1
 bool Camera_FreeLook(Camera* camera) {
     Vec3f* eye = &camera->eye;
@@ -153,6 +156,7 @@ bool Camera_FreeLook(Camera* camera) {
 bool Camera_CanFreeLook(Camera* camera) {
     f32 camX = sCamPlayState->state.input[0].cur.right_stick_x * 10.0f;
     f32 camY = sCamPlayState->state.input[0].cur.right_stick_y * 10.0f;
+
     if (!sCanFreeLook && (fabsf(camX) >= 15.0f || fabsf(camY) >= 15.0f)) {
         sCanFreeLook = true;
     }

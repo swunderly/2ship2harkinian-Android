@@ -20,6 +20,14 @@
 #include "ResolutionEditor.h"
 #include "2s2h/Rando/Rando.h"
 #include "build.h"
+#include <algorithm>
+#if defined(__ANDROID__)
+#include <jni.h>
+#include <SDL.h>
+#ifndef ANDROID_APP_VERSION_NAME
+#define ANDROID_APP_VERSION_NAME "unknown"
+#endif
+#endif
 
 #include <fast/Fast3dGui.h>
 #include <fast/Fast3dWindow.h>
@@ -40,7 +48,105 @@ static std::unordered_map<int32_t, const char*> imguiScaleOptions = {
     { 2, "Large" },
     { 3, "X-Large" },
 };
+#if defined(__ANDROID__)
+static const std::unordered_map<int32_t, const char*> touchFaceButtonLayoutMap = {
+    { 0, "ABXY (Nintendo)" },
+    { 1, "BAYX (Xbox)" },
+    { 2, "GC Layout" },
+};
 
+static void ApplyAndroidMenuScale(float scale) {
+    if (scale < 1.0f) {
+        scale = 1.0f;
+    } else if (scale > 3.0f) {
+        scale = 3.0f;
+    }
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.FramePadding = ImVec2(4.0f * scale, 6.0f * scale);
+    style.ItemSpacing = ImVec2(8.0f * scale, 6.0f * scale);
+    style.ItemInnerSpacing = ImVec2(4.0f * scale, 4.0f * scale);
+    style.ScrollbarSize = 14.0f * scale;
+    style.GrabMinSize = 12.0f * scale;
+    ImGui::GetIO().FontGlobalScale = scale;
+}
+
+static void SetAndroidTouchControlsDisabled(bool disabled) {
+    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        return;
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    if (activityClass == nullptr) {
+        return;
+    }
+
+    jmethodID setTouchControlsMethod =
+        env->GetMethodID(activityClass, "setTouchControlsDisabledFromNative", "(Z)V");
+    if (setTouchControlsMethod != nullptr) {
+        env->CallVoidMethod(activity, setTouchControlsMethod, disabled ? JNI_TRUE : JNI_FALSE);
+    }
+    env->DeleteLocalRef(activityClass);
+}
+
+static void SetAndroidTouchFaceButtonLayout(int32_t layout) {
+    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        return;
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    if (activityClass != nullptr) {
+        jmethodID method =
+            env->GetMethodID(activityClass, "setTouchFaceButtonLayoutFromNative", "(I)V");
+        if (method != nullptr) {
+            env->CallVoidMethod(activity, method, static_cast<jint>(layout));
+        }
+        env->DeleteLocalRef(activityClass);
+    }
+}
+
+static void SetAndroidTouchLeftStickFloating(bool floating) {
+    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        return;
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    if (activityClass != nullptr) {
+        jmethodID method = env->GetMethodID(activityClass, "setTouchLeftStickFloatingFromNative", "(Z)V");
+        if (method != nullptr) {
+            env->CallVoidMethod(activity, method, floating ? JNI_TRUE : JNI_FALSE);
+        }
+        env->DeleteLocalRef(activityClass);
+    }
+}
+#endif
+
+#if defined(__ANDROID__)
+static void OpenAndroidDataFolderChooser() {
+    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        return;
+    }
+
+    jclass activityClass = env->GetObjectClass(activity);
+    if (activityClass == nullptr) {
+        return;
+    }
+
+    jmethodID changeDataFolderMethod = env->GetMethodID(activityClass, "changeDataFolderFromNative", "()V");
+    if (changeDataFolderMethod != nullptr) {
+        env->CallVoidMethod(activity, changeDataFolderMethod);
+    }
+    env->DeleteLocalRef(activityClass);
+}
+#endif
 static const std::unordered_map<int32_t, const char*> menuThemeOptions = {
     { UIWidgets::Colors::Red, "Red" },
     { UIWidgets::Colors::DarkRed, "Dark Red" },
@@ -360,7 +466,11 @@ void BenMenu::AddSettings() {
     // Add Settings menu
     AddMenuEntry("Settings", "gSettings.Menu.SettingsSidebarSection");
     // General Settings
+#if defined(__ANDROID__)
+    AddSidebarEntry("Settings", "General", 1);
+#else
     AddSidebarEntry("Settings", "General", 2);
+#endif
     WidgetPath path = { "Settings", "General", SECTION_COLUMN_1 };
     AddWidget(path, "Menu Theme", WIDGET_CVAR_COMBOBOX)
         .CVar("gSettings.Menu.Theme")
@@ -372,6 +482,20 @@ void BenMenu::AddSettings() {
         .CVar("gSettings.Menu.BackgroundOpacity")
         .Options(FloatSliderOptions().DefaultValue(0.85f).IsPercentage().Tooltip(
             "Sets the opacity of the background of the port menu."));
+#if defined(__ANDROID__)
+    AddWidget(path, "Menu Scale: %.2fx", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gSettings.Menu.AndroidScale")
+        .Callback([](WidgetInfo& info) {
+            ApplyAndroidMenuScale(CVarGetFloat("gSettings.Menu.AndroidScale", 1.45f));
+        })
+        .Options(FloatSliderOptions()
+                     .DefaultValue(1.45f)
+                     .Min(1.0f)
+                     .Max(3.0f)
+                     .Step(0.05f)
+                     .Format("%.2f")
+                     .Tooltip("Adjusts the size of the Android menu."));
+#endif
 #if not defined(__SWITCH__) and not defined(__WIIU__)
     AddWidget(path, "Menu Controller Navigation", WIDGET_CVAR_CHECKBOX)
         .CVar(CVAR_IMGUI_CONTROLLER_NAV)
@@ -409,13 +533,32 @@ void BenMenu::AddSettings() {
     AddWidget(path, "Reset Button Combination:", WIDGET_CVAR_BTN_SELECTOR)
         .CVar("gSettings.ResetBtn")
         .Options(BtnSelectorOptions().DefaultValue(BTN_CUSTOM_MODIFIER2));
+#if defined(__ANDROID__)
+    AddWidget(path, "Version", WIDGET_CUSTOM).CustomFunction([](WidgetInfo& info) {
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 0.7f), "Version");
+        ImGui::SameLine();
+        ImGui::TextUnformatted(ANDROID_APP_VERSION_NAME);
+    });
+    AddWidget(path, "Current Data Folder", WIDGET_CUSTOM).CustomFunction([](WidgetInfo& info) {
+        std::string dataFolderPath = Ship::Context::GetAppDirectoryPath(appShortName);
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 0.7f), "Current Data Folder");
+        ImGui::PushTextWrapPos(ImGui::GetContentRegionAvail().x);
+        ImGui::TextUnformatted(dataFolderPath.c_str());
+        ImGui::PopTextWrapPos();
+    });
+    AddWidget(path, "Change Data Folder", WIDGET_BUTTON)
+        .Callback([](WidgetInfo& info) { OpenAndroidDataFolderChooser(); })
+        .Options(ButtonOptions().Tooltip("Choose where Android stores saves, mods, settings, and support files."));
+#else
     AddWidget(path, "Open App Files Folder", WIDGET_BUTTON)
         .Callback([](WidgetInfo& info) {
             std::string filesPath = Ship::Context::GetRawInstance()->GetAppDirectoryPath();
             SDL_OpenURL(std::string("file:///" + std::filesystem::absolute(filesPath).string()).c_str());
         })
         .Options(ButtonOptions().Tooltip("Opens the folder that contains the save and mods folders, etc."));
+#endif
 
+#if !defined(__ANDROID__)
     AddWidget(path, "ImGui Menu Scaling", WIDGET_CVAR_COMBOBOX)
         .CVar("gSettings.ImGuiScale")
         .Options(ComboboxOptions()
@@ -425,17 +568,9 @@ void BenMenu::AddSettings() {
                      .ComponentAlignment(UIWidgets::Right)
                      .LabelPosition(UIWidgets::Far))
         .Callback([](WidgetInfo& info) { OTRGlobals::Instance->ScaleImGui(); });
-
     path.column = SECTION_COLUMN_2;
     AddWidget(path, "about", WIDGET_CUSTOM).CustomFunction([](WidgetInfo& info) {
         ImGui::BeginChild("about");
-        ImGui::PushStyleColor(ImGuiCol_Text, ColorValues.at(Colors::Gray));
-        if (gGitCommitTag[0] == 0) {
-            ImGui::Text("%s | %s", (char*)gGitBranch, (char*)gGitCommitHash);
-        } else {
-            ImGui::Text("%s", (char*)gBuildVersion);
-        }
-        ImGui::PopStyleColor();
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.5f, 1.0f));
         ImGui::SeparatorText("Thank You");
         ImGui::PopStyleColor();
@@ -480,6 +615,7 @@ void BenMenu::AddSettings() {
 
         ImGui::EndChild();
     });
+#endif
 
     // Audio Settings
     path.sidebarName = "Audio";
@@ -647,6 +783,40 @@ void BenMenu::AddSettings() {
         .CVar("gWindows.BenInputEditor")
         .WindowName("2S2H Input Editor")
         .Options(ButtonOptions().Tooltip("Enables the separate Bindings Window.").Size(Sizes::Inline));
+
+#if defined(__ANDROID__)
+    path.sidebarName = "Touch Controls";
+    path.column = SECTION_COLUMN_1;
+    AddSidebarEntry("Settings", "Touch Controls", 2);
+    AddWidget(path, "Touch Face Buttons", WIDGET_CVAR_COMBOBOX)
+        .CVar("gSettings.TouchControls.FaceButtonLayout")
+        .Callback([](WidgetInfo& info) {
+            SetAndroidTouchFaceButtonLayout(
+                CVarGetInteger("gSettings.TouchControls.FaceButtonLayout", 0));
+        })
+        .Options(ComboboxOptions()
+                     .ComboMap(&touchFaceButtonLayoutMap)
+                     .DefaultIndex(0)
+                     .Tooltip("Choose ABXY (Nintendo), BAYX (Xbox), or GC Layout touch-button placement."));
+    SetAndroidTouchFaceButtonLayout(
+        CVarGetInteger("gSettings.TouchControls.FaceButtonLayout", 0));
+    AddWidget(path, "Floating Left Stick", WIDGET_CVAR_CHECKBOX)
+        .CVar("gSettings.TouchControls.FloatingLeftStick")
+        .Callback([](WidgetInfo& info) {
+            SetAndroidTouchLeftStickFloating(
+                CVarGetInteger("gSettings.TouchControls.FloatingLeftStick", 1) != 0);
+        })
+        .Options(CheckboxOptions().DefaultValue(true).Tooltip(
+            "When disabled, the left touch stick stays fixed in the lower-left corner."));
+    SetAndroidTouchLeftStickFloating(
+        CVarGetInteger("gSettings.TouchControls.FloatingLeftStick", 1) != 0);
+    AddWidget(path, "Disable Touch Controls", WIDGET_CVAR_CHECKBOX)
+        .CVar("gSettings.TouchControls.Disabled")
+        .Callback([](WidgetInfo& info) {
+            SetAndroidTouchControlsDisabled(CVarGetInteger("gSettings.TouchControls.Disabled", 0) != 0);
+        })
+        .Options(CheckboxOptions().Tooltip("Hides the Android touch controls and eye button."));
+#endif
 
     path.sidebarName = "Overlay";
     path.column = SECTION_COLUMN_1;
@@ -1387,8 +1557,8 @@ void BenMenu::AddEnhancements() {
         .Options(CheckboxOptions().Tooltip("Makes item drops 3D"));
     AddWidget(path, "Authentic Logo", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Graphics.AuthenticLogo")
-        .Options(CheckboxOptions().Tooltip("Hide the game version and build details and display the authentic "
-                                           "model and texture on the boot logo start screen."));
+        .Options(CheckboxOptions().Tooltip("Skips the libultraship startup logo and displays the authentic "
+                                           "Nintendo 64 logo."));
     AddWidget(path, "Disable Black Bar Letterboxes", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Graphics.DisableBlackBars")
         .Options(CheckboxOptions().Tooltip(

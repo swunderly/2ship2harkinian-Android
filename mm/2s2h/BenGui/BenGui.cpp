@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <libultraship/window/gui/GfxDebuggerWindow.h>
+#include <libultraship/bridge/consolevariablebridge.h>
 #include "UIWidgets.hpp"
 #include "HudEditor.h"
 #include "2s2h/Enhancements/Audio/AudioEditor.h"
@@ -81,8 +82,23 @@ void SetupMenu() {
     gui->SetMenu(mBenMenu);
 
     auto& style = ImGui::GetStyle();
+#if defined(__ANDROID__)
+    float androidMenuScale = CVarGetFloat("gSettings.Menu.AndroidScale", 1.45f);
+    if (androidMenuScale < 1.0f) {
+        androidMenuScale = 1.0f;
+    } else if (androidMenuScale > 3.0f) {
+        androidMenuScale = 3.0f;
+    }
+    style.FramePadding = ImVec2(4.0f * androidMenuScale, 6.0f * androidMenuScale);
+    style.ItemSpacing = ImVec2(8.0f * androidMenuScale, 6.0f * androidMenuScale);
+    style.ItemInnerSpacing = ImVec2(4.0f * androidMenuScale, 4.0f * androidMenuScale);
+    style.ScrollbarSize = 14.0f * androidMenuScale;
+    style.GrabMinSize = 12.0f * androidMenuScale;
+    ImGui::GetIO().FontGlobalScale = androidMenuScale;
+#else
     style.FramePadding = ImVec2(4.0f, 6.0f);
     style.ItemSpacing = ImVec2(8.0f, 6.0f);
+#endif
     style.Colors[ImGuiCol_MenuBarBg] = UIWidgets::ColorValues.at(UIWidgets::Colors::DarkGray);
 
     mModalWindow = std::make_shared<BenModalWindow>("gWindows.ModalWindow", "Modal Window");

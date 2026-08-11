@@ -8,6 +8,7 @@
 #include <variant>
 #include <spdlog/fmt/fmt.h>
 #include "variables.h"
+#include <algorithm>
 #include <tuple>
 #include <ship/config/Config.h>
 
@@ -595,14 +596,22 @@ void Menu::DrawElement() {
         ImGui::End();
         return;
     }
+#if !defined(__ANDROID__)
     ImGui::PushFont(OTRGlobals::Instance->fontStandardLargest);
+#else
+    ImGui::PushFont(OTRGlobals::Instance->fontStandard);
+#endif
     ImGuiContext& g = *GImGui;
     ImGuiWindow* window = g.CurrentWindow;
     ImGuiStyle& style = ImGui::GetStyle();
     windowHeight = window->WorkRect.GetHeight();
     windowWidth = window->WorkRect.GetWidth();
 
+#if defined(__ANDROID__)
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 3.0f));
+#else
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 8.0f));
+#endif
     const char* headerCvar = "gSettings.Menu.ActiveHeader";
     std::string headerIndex = CVarGetString(headerCvar, "Settings");
     if (GetVectorIndexOf(menuOrder, headerIndex) == menuOrder.size()) {
@@ -611,10 +620,19 @@ void Menu::DrawElement() {
     ImVec2 pos = window->DC.CursorPos;
     float centerX = pos.x + windowWidth / 2 - (style.ItemSpacing.x * (menuEntries.size() + 1));
     std::vector<ImVec2> headerSizes;
-    float headerWidth = style.ItemSpacing.x;
+    bool autoFocus = CVarGetInteger("gSettings.Menu.SearchAutofocus", 0);
     bool headerSearch = !CVarGetInteger("gSettings.Menu.SidebarSearch", 0);
+    float buttonWidth = (ImGui::CalcTextSize(ICON_FA_TIMES_CIRCLE) + style.FramePadding * 2).x;
+    float reservedHeaderButtonWidth = buttonWidth * 3 + style.ItemSpacing.x * 3;
+    float headerSearchWidth = 0.0f;
+    float headerWidth = style.ItemSpacing.x;
     if (headerSearch) {
-        headerWidth += 200.0f + style.ItemSpacing.x + style.FramePadding.x;
+#if defined(__ANDROID__)
+        headerSearchWidth = std::clamp(windowWidth * 0.11f, 72.0f, 160.0f);
+#else
+        headerSearchWidth = 200.0f;
+#endif
+        headerWidth += headerSearchWidth + style.ItemSpacing.x + style.FramePadding.x;
     }
     for (auto& label : menuOrder) {
         ImVec2 size = ImGui::CalcTextSize(label.c_str());
@@ -624,40 +642,30 @@ void Menu::DrawElement() {
             headerWidth += style.ItemSpacing.x;
         }
     }
-    // Full screen menu with widths below 1280, heights below 800.
-    // 5% of screen width/height padding on both sides above those resolutions.
-    // Menu width will never exceed a 16:9 aspect ratio.
     ImVec2 menuSize = { windowWidth, windowHeight };
+#ifdef __ANDROID__
     if (windowWidth > 1280) {
-        menuSize.x = std::fminf(windowWidth * 0.9f, (windowHeight * 1.77f));
+        menuSize.x = std::fminf(windowWidth * 0.9f, windowHeight * 1.77f);
     }
     if (windowHeight > 800) {
         menuSize.y = windowHeight * 0.9f;
     }
+#else
+    menuSize = { std::fminf(1280, windowWidth), std::fminf(800, windowHeight) };
+#endif
     pos += window->WorkRect.GetSize() / 2 - menuSize / 2;
     ImGui::SetNextWindowPos(pos);
-    ImGui::BeginChild("Menu Block", menuSize,
-                      ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
+    ImGui::BeginChild("Menu Block", menuSize, ImGuiChildFlags_None,
                       ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar);
 
     std::unordered_map<std::string, SidebarEntry>* sidebar;
     float headerHeight = headerSizes.at(0).y + style.FramePadding.y * 2;
     ImVec2 buttonSize = ImGui::CalcTextSize(ICON_FA_TIMES_CIRCLE) + style.FramePadding * 2;
-    bool scrollbar = false;
-    if (headerWidth > menuSize.x - buttonSize.x * 3 - style.ItemSpacing.x * 3) {
-        headerHeight += style.ScrollbarSize;
-        scrollbar = true;
-    }
     ImGui::SameLine();
-    ImGui::SetNextWindowSizeConstraints({ 0, headerHeight }, { headerWidth, headerHeight });
-    ImVec2 headerSelSize = { menuSize.x - buttonSize.x * 3 - style.ItemSpacing.x * 3, headerHeight };
-    if (scrollbar) {
-        headerSelSize.y += style.ScrollbarSize;
-    }
-    bool autoFocus = CVarGetInteger("gSettings.Menu.SearchAutofocus", 0);
-    ImGui::BeginChild("Header Selection", headerSelSize,
-                      ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
-                      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_HorizontalScrollbar);
+    float headerAvailableWidth = std::max(0.0f, menuSize.x - buttonSize.x * 3 - style.ItemSpacing.x * 3);
+    ImVec2 headerSelSize = { headerAvailableWidth, headerHeight };
+    ImGui::BeginChild("Header Selection", headerSelSize, ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar);
     uint8_t curIndex = 0;
     for (auto& label : menuOrder) {
         if (curIndex != 0) {
@@ -699,11 +707,12 @@ void Menu::DrawElement() {
         color.w = 0.6f;
         ImGui::PushStyleColor(ImGuiCol_FrameBg, color);
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-        menuSearch.Draw("##search", 200.0f);
+        float searchWidth = std::min(headerSearchWidth, std::max(48.0f, ImGui::GetContentRegionAvail().x));
+        menuSearch.Draw("##search", searchWidth);
         menuSearchText = menuSearch.InputBuf;
         menuSearchText.erase(std::remove(menuSearchText.begin(), menuSearchText.end(), ' '), menuSearchText.end());
         if (menuSearchText.length() < 1) {
-            ImGui::SameLine(headerWidth - 200.0f + style.ItemSpacing.x);
+            ImGui::SameLine(std::min(headerWidth, headerAvailableWidth) - searchWidth + style.ItemSpacing.x);
             ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 0.4f), "Search...");
         }
         ImGui::PopStyleVar();
@@ -772,7 +781,7 @@ void Menu::DrawElement() {
     float sectionHeight = menuSize.y - headerHeight - 4 - style.ItemSpacing.y * 2;
     float columnHeight = sectionHeight - style.ItemSpacing.y * 4;
     ImGui::SetNextWindowPos(pos + style.ItemSpacing * 2);
-    float sidebarWidth = 200 - style.ItemSpacing.x;
+    float sidebarWidth = std::max(120.0f, menuSize.x * 0.14f) - style.ItemSpacing.x;
 
     const char* sidebarCvar = menuEntries.at(headerIndex).sidebarCvar;
 
@@ -781,11 +790,22 @@ void Menu::DrawElement() {
         menuEntries[headerIndex].sidebarOrder.size()) {
         sectionIndex = menuEntries[headerIndex].sidebarOrder.at(0);
     }
+
+    float widestSidebarLabel = 0.0f;
+    for (auto& sidebarLabel : menuEntries.at(headerIndex).sidebarOrder) {
+        widestSidebarLabel = std::max(widestSidebarLabel, ImGui::CalcTextSize(sidebarLabel.c_str()).x);
+    }
+    sidebarWidth = std::max(sidebarWidth, widestSidebarLabel + style.FramePadding.x * 2 + style.ItemSpacing.x * 2);
+#if defined(__ANDROID__)
+    sidebarWidth = std::clamp(sidebarWidth, std::min(120.0f, menuSize.x * 0.24f), menuSize.x * 0.24f);
+#else
+    sidebarWidth = std::min(sidebarWidth, menuSize.x * 0.25f);
+#endif
+
     float sectionCenterX = pos.x + (sidebarWidth / 2);
     float topY = pos.y;
-    ImGui::SetNextWindowSizeConstraints({ sidebarWidth, 0 }, { sidebarWidth, columnHeight });
-    ImGui::BeginChild((menuEntries.at(headerIndex).label + " Section").c_str(), { sidebarWidth, columnHeight * 3 },
-                      ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize, ImGuiWindowFlags_NoTitleBar);
+    ImGui::BeginChild((menuEntries.at(headerIndex).label + " Section").c_str(), { sidebarWidth, columnHeight },
+                      ImGuiChildFlags_None, ImGuiWindowFlags_NoTitleBar);
     for (auto& sidebarLabel : menuEntries.at(headerIndex).sidebarOrder) {
         std::string nextIndex = "";
         UIWidgets::PushStyleButton(menuThemeIndex);
@@ -810,7 +830,11 @@ void Menu::DrawElement() {
     }
     ImGui::EndChild();
 
+#if defined(__ANDROID__)
+    ImGui::PushFont(OTRGlobals::Instance->fontMono);
+#else
     ImGui::PushFont(OTRGlobals::Instance->fontMonoLarger);
+#endif
     pos = ImVec2{ sectionCenterX + (sidebarWidth / 2), topY } + style.ItemSpacing * 2;
     window->DrawList->AddRectFilled(pos, pos + ImVec2{ 4, sectionHeight - style.FramePadding.y * 2 },
                                     ImGui::GetColorU32({ 255, 255, 255, 255 }), true, style.WindowRounding);
@@ -820,15 +844,23 @@ void Menu::DrawElement() {
     std::string sectionMenuId = sectionIndex + " Settings";
     int columns = sidebar->at(sectionIndex).columnCount;
     size_t columnFuncs = sidebar->at(sectionIndex).columnWidgets.size();
+    if (columnFuncs > 0) {
+        columns = std::min<int>(columns, static_cast<int>(columnFuncs));
+    }
     if (windowWidth < 800) {
+        columns = 1;
+    }
+#ifdef __ANDROID__
+    columns = 1;
+#endif
+    if (columns < 1) {
         columns = 1;
     }
     float columnWidth = (sectionWidth - style.ItemSpacing.x * columns) / columns;
     bool useColumns = columns > 1;
     if (!useColumns || (headerSearch && menuSearchText.length() > 0)) {
         ImGui::SameLine();
-        ImGui::SetNextWindowSizeConstraints({ sectionWidth, 0 }, { sectionWidth, columnHeight });
-        ImGui::BeginChild(sectionMenuId.c_str(), { sectionWidth, windowHeight * 4 }, ImGuiChildFlags_AutoResizeY,
+        ImGui::BeginChild(sectionMenuId.c_str(), { sectionWidth, columnHeight }, ImGuiChildFlags_None,
                           ImGuiWindowFlags_NoTitleBar);
     }
     if (headerSearch && menuSearchText.length() > 0) {
@@ -859,8 +891,7 @@ void Menu::DrawElement() {
         for (size_t i = 0; i < columnFuncs; i++) {
             std::string sectionId = fmt::format("{} Column {}", sectionMenuId, i);
             if (useColumns) {
-                ImGui::SetNextWindowSizeConstraints({ columnWidth, 0 }, { columnWidth, columnHeight });
-                ImGui::BeginChild(sectionId.c_str(), { columnWidth, windowHeight * 4 }, ImGuiChildFlags_AutoResizeY,
+                ImGui::BeginChild(sectionId.c_str(), { columnWidth, columnHeight }, ImGuiChildFlags_None,
                                   ImGuiWindowFlags_NoTitleBar);
             }
             // for (auto& entryName : sidebar->at(sectionIndex).sidebarOrder) {

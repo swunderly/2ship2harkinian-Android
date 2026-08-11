@@ -1,87 +1,58 @@
-[comment]: <> (Todo: Make Light Mode Image)
-[comment]: <> (Todo: Make Dark Mode Image)
+# 2 Ship 2 Harkinian Android
 
-# 2 Ship 2 Harkinian
+Android port of 2 Ship 2 Harkinian, based on the HarbourMasters project and forked from Waterdish's original Android port.
 
-## Discord
+Original repository: https://github.com/HarbourMasters/2ship2harkinian
 
-Official Discord: https://discord.com/invite/shipofharkinian
+Original port: https://github.com/Waterdish/2ship2harkinian-Android
 
-If you're having any trouble after reading through this `README`, feel free ask for help in the 2 Ship 2 Harkinian Support text channels. Please keep in mind that we do not condone piracy.
+Current Android release: **v5.0.0-android.1**
 
-# Quick Start
+Supported: Android 7+ with OpenGL ES 3.0+
 
-2Ship does not include any copyrighted assets.  You are required to provide a supported copy of the game.
+Tested on: Android 13
 
-### 1. Verify your ROM dump
-You can verify you have dumped a supported copy of the game by using the compatibility checker at https://2ship.equipment/. If you'd prefer to manually validate your ROM dump, you can cross-reference its `sha1` hash with the hashes [here](docs/supportedHashes.json).
+## Installation
 
-### 2. Download 2 Ship 2 Harkinian from [Releases](https://github.com/HarbourMasters/2Ship2Harkinian/releases)
+1. Install the APK from the releases page: https://github.com/linkzenic/2ship2harkinian-Android/releases
+2. Open the app once so it can create the data folder and copy bundled support files.
+3. When prompted, select your legally obtained `MM.z64` ROM so the app can generate `mm.o2r`.
+4. Subsequent launches should start directly into the game.
 
-### 3. Launch the Game!
-#### Windows
-* Extract the zip
-* Launch `2ship.exe`
+Use the Back, Select, or minus controller button, or the Android back gesture/button, to open the 2 Ship 2 Harkinian menu. Use touch controls or a controller to navigate menus.
 
-#### Linux
-* Place your supported copy of the game in the same folder as the appimage.
-* Execute `2ship.appimage`. You may have to `chmod +x` the appimage via terminal.
+## Data Folder
 
-#### macOS
-* Run `2ship.app`.
-* When prompted, select your supported copy of the game.
+The app stores user data in the selected 2S2H data folder. You can view the current folder and change it from Settings > General.
 
-### 4. Play!
+Mods and user preset files should be placed in the relevant folders inside the selected data folder.
 
-Congratulations, you are now sailing with 2 Ship 2 Harkinian! Have fun!
+## FAQs
 
-# Configuration
+**What is different with this fork?**
+Special attention to Android specific needs.
+ - Move the data folder to an SD card
+ - Turn touch controls on or off
+ - Scalable menu sizes
 
-### Default keyboard configuration
-| N64 | A | B | Z | Start | Analog stick | C buttons | D-Pad |
-| - | - | - | - | - | - | - | - |
-| Keyboard | X | C | Z | Space | WASD | Arrow keys | TFGH |
+**Why is it immediately crashing?**
 
-### Other shortcuts
-| Keys | Action |
-| - | - |
-| F1 | Toggle menubar |
-| F11 | Fullscreen |
-| Tab | Toggle Alternate assets |
-| Ctrl+R | Reset |
+Try deleting and regenerating `mm.o2r` from your own ROM.
 
-### Graphics Backends
-Currently, there are three rendering APIs supported: DirectX 11 (Windows), OpenGL (all platforms), and Metal (macOS). You can change which API to use in the `Settings` menu of the menubar, which requires a restart.
+**My controller is not doing anything.**
 
-If you're having an issue with crashing, you can also change the API manually in the `2ship2harkinian.json` file by finding the `"Backend": {` section and updating the backend ID and name. Be sure to use one of the valid values:
+Open the menu and check Settings > Controls to confirm the controller is detected and mapped.
 
-- `0` = DirectX 11 (default on Windows)
-- `1` = OpenGL
-- `2` = Metal (default on macOS)
+**Can I hide the on-screen touch controls?**
 
-# Custom Assets
+Yes. Use Settings > Touch Controls > Disable Touch Controls.
 
-Custom assets are packed in `.o2r` or `.otr` files. To use custom assets, place them in the `mods` folder.
+**Can I resize the menu?**
 
-If you're interested in creating and/or packing your own custom asset `.o2r`/`.otr` files, check out the following tools:
-* [**retro - OTR and O2R generator**](https://github.com/HarbourMasters64/retro)
-* [**fast64 - Blender plugin (Note that MM is not fully supported at this time)**](https://github.com/HarbourMasters/fast64)
+Yes. Use Settings > General > Menu Scale.
 
-# Development
+## Known Issues
 
-If you want to manually compile 2S2H, please consult the [building instructions](docs/BUILDING.md).
+Orientation lock is limited by SDL behavior on Android: https://github.com/libsdl-org/SDL/issues/6090
 
-# Nightly Builds
-If you want to playtest a continuous integration build, you can find them at the links below. Keep in mind that these are for playtesting only, and you will likely encounter bugs and possibly crashes. 
-
-* [Windows](https://nightly.link/HarbourMasters/2ship2harkinian/workflows/main/develop/2ship-windows.zip)
-* [Linux](https://nightly.link/HarbourMasters/2ship2harkinian/workflows/main/develop/2ship-linux.zip)
-* [Mac](https://nightly.link/HarbourMasters/2ship2harkinian/workflows/main/develop/2ship-mac.zip)
-
-<a href="https://github.com/Kenix3/libultraship/">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./docs/poweredbylus.darkmode.png">
-    <img alt="Powered by libultraship" src="./docs/poweredbylus.lightmode.png">
-  </picture>
-</a>
-
+Near-plane clipping can occur when the camera is close to walls.

@@ -16,6 +16,7 @@ find_path(OPUSFILE_INCLUDE_DIR
     NAMES opusfile.h
     HINTS ${PC_OPUSFILE_INCLUDE_DIRS}
     PATHS /usr/include/opus /usr/local/include/opus /opt/local/include/opus /opt/homebrew/include/opus
+    PATH_SUFFIXES opus
     DOC "Directory where opusfile.h is located"
 )
 

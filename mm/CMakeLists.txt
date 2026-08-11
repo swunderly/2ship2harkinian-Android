@@ -176,7 +176,11 @@ set(ALL_FILES
 ################################################################################
 # Target
 ################################################################################
-add_executable(${PROJECT_NAME} ${ALL_FILES})
+if (NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    add_executable(${PROJECT_NAME} ${ALL_FILES})
+else()
+    add_library(${PROJECT_NAME} SHARED ${ALL_FILES})
+endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 use_props(${PROJECT_NAME} "${CMAKE_CONFIGURATION_TYPES}" "${DEFAULT_CXX_PROPS}")
@@ -201,6 +205,10 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	OUTPUT_NAME "2s2h.elf"
 	)
 endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Android" AND DEFINED ANDROID_APP_VERSION_NAME)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ANDROID_APP_VERSION_NAME="${ANDROID_APP_VERSION_NAME}")
+endif()
 ################################################################################
 # MSVC runtime library
 ################################################################################
@@ -220,7 +228,9 @@ endif()
 ################################################################################
 # Compile definitions
 ################################################################################
-find_package(SDL2)
+if (NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    find_package(SDL2)
+endif()
 set(SDL2-INCLUDE ${SDL2_INCLUDE_DIRS})
 
 if (BUILD_CROWD_CONTROL)
@@ -424,6 +434,29 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
                 -Wno-stringop-overflow
             >
         )
+    elseif (CMAKE_SYSTEM_NAME STREQUAL "Android")
+        target_compile_options(${PROJECT_NAME} PRIVATE
+            -O2
+
+            -Wno-error
+            -Wno-format-security
+            # disable some warnings to not clutter output
+            -Wno-multichar
+            -Wno-return-type
+            -Wno-narrowing
+            -Wno-switch-outside-range
+            $<$<COMPILE_LANGUAGE:C>:
+                -Werror-implicit-function-declaration
+                -Wno-incompatible-pointer-types
+                -Wno-discarded-array-qualifiers
+                -Wno-discarded-qualifiers
+                -Wno-int-conversion
+                -Wno-builtin-declaration-mismatch
+                -Wno-switch-unreachable
+                -Wno-stringop-overflow
+                -Wno-implicit-int
+            >
+        )
     else()
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
 		set(CPU_OPTION -msse2 -mfpmath=sse)
@@ -518,7 +551,7 @@ endif()
 if (CMAKE_GENERATOR MATCHES "Visual Studio")
     set(VS_COPY_ASSETS_CMD ${CMAKE_COMMAND} -E copy_directory_if_different $<TARGET_FILE_DIR:2ship>/assets ${CMAKE_BINARY_DIR}/mm/assets)
 endif()
-if(NOT CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch|CafeOS")
+if(NOT CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch|CafeOS|Android")
     add_custom_command(
         TARGET ${PROJECT_NAME}
         POST_BUILD
@@ -581,6 +614,55 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
         "libultraship;"
         SDL2::SDL2
         -lglad
+        Threads::Threads
+    )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    set(THREADS_PREFER_PTHREAD_FLAG ON)
+    find_package(Threads REQUIRED)
+
+    if(DEFINED ANDROID_VCPKG_ROOT)
+        if(ANDROID_ABI STREQUAL "arm64-v8a")
+            set(ANDROID_VCPKG_TRIPLET "arm64-android")
+        elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
+            set(ANDROID_VCPKG_TRIPLET "arm-neon-android")
+        elseif(ANDROID_ABI STREQUAL "x86")
+            set(ANDROID_VCPKG_TRIPLET "x86-android")
+        elseif(ANDROID_ABI STREQUAL "x86_64")
+            set(ANDROID_VCPKG_TRIPLET "x64-android")
+        else()
+            message(FATAL_ERROR "Unsupported Android ABI for vcpkg: ${ANDROID_ABI}")
+        endif()
+
+        set(ANDROID_VCPKG_PREFIX "${ANDROID_VCPKG_ROOT}/installed/${ANDROID_VCPKG_TRIPLET}")
+        list(PREPEND CMAKE_PREFIX_PATH "${ANDROID_VCPKG_PREFIX}")
+        set(Ogg_DIR "${ANDROID_VCPKG_PREFIX}/share/ogg")
+        set(Opus_DIR "${ANDROID_VCPKG_PREFIX}/share/opus")
+        set(OpusFile_DIR "${ANDROID_VCPKG_PREFIX}/share/opusfile")
+        set(Vorbis_DIR "${ANDROID_VCPKG_PREFIX}/share/Vorbis")
+    endif()
+
+    find_package(Ogg CONFIG REQUIRED)
+    find_package(Vorbis CONFIG REQUIRED)
+    find_package(Opus CONFIG REQUIRED)
+    find_package(OpusFile CONFIG REQUIRED)
+
+    if(TARGET OpusFile::opusfile)
+        set(OPUSFILE_TARGET OpusFile::opusfile)
+    elseif(TARGET Opusfile::Opusfile)
+        set(OPUSFILE_TARGET Opusfile::Opusfile)
+    else()
+        message(FATAL_ERROR "OpusFile package was found, but no known OpusFile target is available")
+    endif()
+
+    set(ADDITIONAL_LIBRARY_DEPENDENCIES
+        "libultraship;"
+        "ZAPDLib;"
+        Ogg::ogg
+        Vorbis::vorbis
+        Vorbis::vorbisfile
+        Opus::opus
+        ${OPUSFILE_TARGET}
+        SDL2::SDL2
         Threads::Threads
     )
 elseif(CMAKE_SYSTEM_NAME STREQUAL "CafeOS")

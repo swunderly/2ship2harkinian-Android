@@ -112,7 +112,7 @@ endif()
 ################################################################################
 # Global configuration types
 ################################################################################
-if (CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
+if (CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch|Android")
     set(CMAKE_C_FLAGS_DEBUG "-g -ffast-math -DDEBUG")
     set(CMAKE_CXX_FLAGS_DEBUG "-g -ffast-math -DDEBUG")
     set(CMAKE_C_FLAGS_RELEASE "-O3 -ffast-math -DNDEBUG")
@@ -165,7 +165,6 @@ add_compile_definitions(CONTROLLERBUTTONS_T=uint32_t)
 ################################################################################
 add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)
 target_compile_definitions(libultraship PUBLIC INCLUDE_MPQ_SUPPORT)
-
 # LUS ships no PCH of its own and these headers dominate its build. Done here rather than in the
 # submodule, and PRIVATE, so nothing about its public interface changes.
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU|MSVC")
@@ -184,6 +183,27 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU|MSVC")
     endif()
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Android" AND DEFINED ANDROID_VCPKG_ROOT)
+    if(ANDROID_ABI STREQUAL "arm64-v8a")
+        set(ANDROID_VCPKG_TRIPLET "arm64-android")
+    elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
+        set(ANDROID_VCPKG_TRIPLET "arm-neon-android")
+    elseif(ANDROID_ABI STREQUAL "x86")
+        set(ANDROID_VCPKG_TRIPLET "x86-android")
+    elseif(ANDROID_ABI STREQUAL "x86_64")
+        set(ANDROID_VCPKG_TRIPLET "x64-android")
+    endif()
+
+    if(ANDROID_VCPKG_TRIPLET)
+        set(ANDROID_VCPKG_PREFIX "${ANDROID_VCPKG_ROOT}/installed/${ANDROID_VCPKG_TRIPLET}")
+        list(PREPEND CMAKE_PREFIX_PATH "${ANDROID_VCPKG_PREFIX}")
+        set(PNG_DIR "${ANDROID_VCPKG_PREFIX}/share/png")
+        find_package(PNG CONFIG REQUIRED)
+        if(TARGET PNG::PNG AND NOT TARGET png)
+            add_library(png ALIAS PNG::PNG)
+        endif()
+    endif()
+endif()
 add_subdirectory(ZAPDTR/ZAPD ${CMAKE_BINARY_DIR}/ZAPD)
 add_subdirectory(OTRExporter)
 add_subdirectory(mm)
@@ -203,6 +223,15 @@ if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/" DESTINATION ./assets/ COMPONENT 2s2h)
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/" DESTINATION ./assets/xml COMPONENT 2s2h)
 endif()
+
+if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
+file(COPY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/" DESTINATION "${CMAKE_SOURCE_DIR}/Android/app/src/main/assets/assets/extractor")
+file(COPY "${CMAKE_SOURCE_DIR}/mm/assets/xml/" DESTINATION "${CMAKE_SOURCE_DIR}/Android/app/src/main/assets/assets/xml")
+file(COPY "${CMAKE_SOURCE_DIR}/OTRExporter/CFG/ActorList_MM.txt" DESTINATION "${CMAKE_SOURCE_DIR}/Android/app/src/main/assets/assets/extractor/symbols")
+file(COPY "${CMAKE_SOURCE_DIR}/OTRExporter/CFG/ObjectList_MM.txt" DESTINATION "${CMAKE_SOURCE_DIR}/Android/app/src/main/assets/assets/extractor/symbols")
+file(COPY "${CMAKE_SOURCE_DIR}/OTRExporter/CFG/SymbolMap_MM.txt" DESTINATION "${CMAKE_SOURCE_DIR}/Android/app/src/main/assets/assets/extractor/symbols")
+endif()
+
 
 find_package(Python3 COMPONENTS Interpreter)
 
@@ -293,5 +322,7 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
     set(CPACK_GENERATOR "Bundle")
 endif()
 
-set(CPACK_PROJECT_CONFIG_FILE ${CMAKE_SOURCE_DIR}/CMake/Packaging-2.cmake)
-include(CMake/Packaging.cmake)
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    set(CPACK_PROJECT_CONFIG_FILE ${CMAKE_SOURCE_DIR}/CMake/Packaging-2.cmake)
+    include(CMake/Packaging.cmake)
+endif()
