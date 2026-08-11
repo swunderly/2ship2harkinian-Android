@@ -74,6 +74,7 @@ public class MainActivity extends SDLActivity{
         preferences = getSharedPreferences("com.twoshipfork.mm.prefs",Context.MODE_PRIVATE);
 
         updateCurrentDataRootPath();
+        AndroidCrashReporter.install(this, getTargetRootFolder());
 
         if (hasStoragePermission()) {
             beginSetupOrChooseDataRoot();
@@ -83,10 +84,28 @@ public class MainActivity extends SDLActivity{
 
         super.onCreate(savedInstanceState);
 
+        boolean debuggable = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        if (debuggable && getIntent().getBooleanExtra("test_native_crash_report", false)) {
+            nativeTestCrashReporter();
+        }
+        if (debuggable && getIntent().getBooleanExtra("test_java_crash_report", false)) {
+            throw new IllegalStateException("Crash reporter verification");
+        }
+
         setupControllerOverlay();
         applyImmersiveFullscreen();
         attachController();
     }
+
+    @Override
+    public void loadLibraries() {
+        super.loadLibraries();
+        nativeInstallCrashReporter(AndroidCrashReporter.getNativeReportFile().getAbsolutePath(),
+                BuildConfig.VERSION_NAME);
+    }
+
+    private native void nativeInstallCrashReporter(String reportPath, String versionName);
+    private native void nativeTestCrashReporter();
 
     @Override
     protected void onResume() {
