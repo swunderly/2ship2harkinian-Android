@@ -37,12 +37,19 @@ void BenModalWindow::DrawElement() {
             modals.erase(modals.begin());
             closePopup = false;
         }
-        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const ImVec2 workCenter =
+            ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                   viewport->WorkPos.y + viewport->WorkSize.y * 0.5f);
+        ImGui::SetNextWindowPos(workCenter, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSizeConstraints(
+            ImVec2(0.0f, 0.0f), ImVec2(viewport->WorkSize.x * 0.9f, viewport->WorkSize.y * 0.9f));
         if (ImGui::BeginPopupModal(curModal.title_.c_str(), NULL,
                                    ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize |
-                                       ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
-                                       ImGuiWindowFlags_NoSavedSettings)) {
-            ImGui::Text("%s", curModal.message_.c_str());
+                                       ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + viewport->WorkSize.x * 0.8f);
+            ImGui::TextWrapped("%s", curModal.message_.c_str());
+            ImGui::PopTextWrapPos();
             UIWidgets::PushStyleButton(THEME_COLOR);
             if (ImGui::Button(curModal.button1_.c_str())) {
                 if (curModal.button1callback_ != nullptr) {

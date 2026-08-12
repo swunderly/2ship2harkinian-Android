@@ -317,7 +317,15 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
         BenGui::RegisterPopup("Outdated ROM Archives",
                               "Your mm.o2r was created with incompatible versions of 2Ship.\nYou will "
                               "now be redirected to re-extract them.");
-        std::filesystem::remove("mm.o2r");
+        const std::string outdatedArchivePath = Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName);
+        std::error_code removeError;
+        const bool removed = std::filesystem::remove(outdatedArchivePath, removeError);
+        if (!removed || removeError) {
+            BenGui::RegisterPopup("Unable to Replace ROM Archive",
+                                  "The outdated mm.o2r could not be removed from the selected data folder.\n"
+                                  "Check storage access and try again.",
+                                  "OK", "", [&]() { exit(1); });
+        }
     }
 
     std::shared_ptr<BS::thread_pool> threadPool = std::make_shared<BS::thread_pool>(1);
@@ -580,6 +588,13 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                 ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(color.x, color.y, color.z, 0.6f));
                 ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(color.x, color.y, color.z, 1.0f));
                 ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.3f));
+                const ImGuiViewport* viewport = ImGui::GetMainViewport();
+                const ImVec2 workCenter =
+                    ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                           viewport->WorkPos.y + viewport->WorkSize.y * 0.5f);
+                ImGui::SetNextWindowPos(workCenter, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+                ImGui::SetNextWindowSizeConstraints(
+                    ImVec2(0.0f, 0.0f), ImVec2(viewport->WorkSize.x * 0.9f, viewport->WorkSize.y * 0.9f));
                 if (ImGui::BeginPopupModal("ROM Extraction", NULL,
                                            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize |
                                                ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
@@ -589,7 +604,8 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                     ImGui::Text("Extracting %s...%s", filename.c_str(),
                                 roundf(progress) == 100.0f ? " Done. Finishing up." : "");
                     std::string overlay = extractCount > 0 ? fmt::format("{:.0f}%", progress) : "Starting Up";
-                    ImGui::ProgressBar(progress / 100.0f, ImVec2(600.0f, 50.0f), overlay.c_str());
+                    const float progressWidth = std::min(600.0f, viewport->WorkSize.x * 0.75f);
+                    ImGui::ProgressBar(progress / 100.0f, ImVec2(progressWidth, 50.0f), overlay.c_str());
                     ImGui::EndPopup();
                 }
                 ImGui::PopStyleColor(3);
