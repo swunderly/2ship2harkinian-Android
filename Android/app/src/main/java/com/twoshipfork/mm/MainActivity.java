@@ -16,8 +16,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.FileOutputStream;
+import java.io.FileInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.zip.ZipFile;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -65,8 +70,13 @@ public class MainActivity extends SDLActivity{
     private static final int TOUCH_FACE_BUTTON_LAYOUT_BAYX = 1;
     private static final int TOUCH_FACE_BUTTON_LAYOUT_GAMECUBE = 2;
     private static final String SUPPORT_FILES_VERSION_MARKER = ".android_support_files_version";
+    private static final String SAFE_MODE_MARKER = ".android_safe_mode";
+    private static final String SUPPORT_ARCHIVE = "2ship.o2r";
+    private static final String DEFAULT_SHADER = "shaders/opengl/default.shader.glsl";
     private AlertDialog dataRootMigrationDialog;
     private AlertDialog setupProgressDialog;
+    private boolean supportFilesNeedRefresh;
+    private boolean recoverWithoutMods;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,7 +84,7 @@ public class MainActivity extends SDLActivity{
         preferences = getSharedPreferences("com.twoshipfork.mm.prefs",Context.MODE_PRIVATE);
 
         updateCurrentDataRootPath();
-        AndroidCrashReporter.install(this, getTargetRootFolder());
+        recoverWithoutMods = AndroidCrashReporter.install(this, getTargetRootFolder());
 
         if (hasStoragePermission()) {
             beginSetupOrChooseDataRoot();
@@ -178,24 +188,41 @@ public class MainActivity extends SDLActivity{
 
     private void doVersionCheck(){
         int currentVersion = BuildConfig.VERSION_CODE;
-        int storedVersion = preferences.getInt("appVersion", 1);
-
-        if (!isSupportFilesMarkerCurrent()) {
-            deleteOutdatedAssets();
-        }
+        supportFilesNeedRefresh = !isSupportFilesMarkerCurrent() || !isSupportArchiveCurrent();
         preferences.edit().putInt("appVersion", currentVersion).apply();
     }
 
-    private void deleteOutdatedAssets() {
-        File targetRootFolder = getTargetRootFolder();
+    private boolean isSupportArchiveCurrent() {
+        File archive = new File(getTargetRootFolder(), SUPPORT_ARCHIVE);
+        if (!archive.isFile() || !archiveContainsDefaultShader(archive)) {
+            return false;
+        }
 
-        File shipOtrFile = new File(targetRootFolder, "2ship.o2r");
-        File assetsFolder = new File(targetRootFolder, "assets");
-        File markerFile = getSupportFilesMarkerFile(targetRootFolder);
+        try (InputStream bundled = getAssets().open(SUPPORT_ARCHIVE);
+             InputStream installed = new FileInputStream(archive)) {
+            return Arrays.equals(digest(bundled), digest(installed));
+        } catch (IOException | NoSuchAlgorithmException e) {
+            Log.w("setupFiles", "Unable to verify support archive", e);
+            return false;
+        }
+    }
 
-        deleteIfExists(shipOtrFile);
-        deleteRecursiveIfExists(assetsFolder);
-        deleteIfExists(markerFile);
+    private byte[] digest(InputStream input) throws IOException, NoSuchAlgorithmException {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] buffer = new byte[64 * 1024];
+        int read;
+        while ((read = input.read(buffer)) != -1) {
+            digest.update(buffer, 0, read);
+        }
+        return digest.digest();
+    }
+
+    private boolean archiveContainsDefaultShader(File archive) {
+        try (ZipFile zip = new ZipFile(archive)) {
+            return zip.getEntry(DEFAULT_SHADER) != null;
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     private File getSupportFilesMarkerFile(File targetRootFolder) {
@@ -539,6 +566,17 @@ public class MainActivity extends SDLActivity{
             return;
         }
 
+        if (recoverWithoutMods) {
+            File safeModeMarker = new File(targetRootFolder, SAFE_MODE_MARKER);
+            try (OutputStream out = new FileOutputStream(safeModeMarker, false)) {
+                out.write(String.valueOf(System.currentTimeMillis()).getBytes());
+                Toast.makeText(this, "Previous startup failed. Mods will be skipped once.", Toast.LENGTH_LONG).show();
+            } catch (IOException e) {
+                Log.w("setupFiles", "Unable to enable recovery startup", e);
+            }
+            recoverWithoutMods = false;
+        }
+
         doVersionCheck();
         checkAndSetupFiles();
     }
@@ -624,7 +662,7 @@ public class MainActivity extends SDLActivity{
         boolean isMissingAssets = !assetsFolder.exists() || assetsFolder.listFiles() == null || assetsFolder.listFiles().length == 0;
         boolean isMissingShipOtr = !shipOtrFile.exists();
 
-        if (!targetRootFolder.exists() || isMissingAssets || isMissingShipOtr) {
+        if (!targetRootFolder.exists() || isMissingAssets || isMissingShipOtr || supportFilesNeedRefresh) {
             new AlertDialog.Builder(this)
                     .setTitle("Setup Required")
                     .setMessage("Some required files are missing. The app will create them now. This can take a few minutes on SD cards.")
@@ -677,6 +715,9 @@ public class MainActivity extends SDLActivity{
         // Copy assets/ from internal
         File targetAssetsDir = new File(targetRootFolder, "assets");
         try {
+            if (supportFilesNeedRefresh) {
+                deleteRecursiveIfExists(targetAssetsDir);
+            }
             if (!targetAssetsDir.exists() && !targetAssetsDir.mkdirs()) {
                 throw new IOException("Failed to create assets folder: " + targetAssetsDir.getAbsolutePath());
             }
@@ -688,14 +729,22 @@ public class MainActivity extends SDLActivity{
             runOnUiThread(() -> Toast.makeText(this, "Error copying assets", Toast.LENGTH_LONG).show());
         }
 
-        File targetShipOtrFile = new File(targetRootFolder, "2ship.o2r");
-        try (InputStream in = getAssets().open("2ship.o2r");
-             OutputStream out = new FileOutputStream(targetShipOtrFile)) {
-            byte[] buffer = new byte[1024];
-            int read;
-            while ((read = in.read(buffer)) != -1) {
-                out.write(buffer, 0, read);
+        File targetShipOtrFile = new File(targetRootFolder, SUPPORT_ARCHIVE);
+        File temporaryShipOtrFile = new File(targetRootFolder, SUPPORT_ARCHIVE + ".new");
+        try {
+            try (InputStream in = getAssets().open(SUPPORT_ARCHIVE);
+                 FileOutputStream out = new FileOutputStream(temporaryShipOtrFile, false)) {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, read);
+                }
+                out.getFD().sync();
             }
+            if (!archiveContainsDefaultShader(temporaryShipOtrFile)) {
+                throw new IOException("Bundled support archive is missing the default shader");
+            }
+            replaceSupportArchive(temporaryShipOtrFile, targetShipOtrFile);
             runOnUiThread(() -> Toast.makeText(this, "Support archive copied", Toast.LENGTH_SHORT).show());
         } catch (IOException e) {
             e.printStackTrace();
@@ -719,7 +768,24 @@ public class MainActivity extends SDLActivity{
         }
 
         dismissSetupProgressDialog();
+        supportFilesNeedRefresh = false;
         setupLatch.countDown();
+    }
+
+    private void replaceSupportArchive(File replacement, File target) throws IOException {
+        File backup = new File(target.getParentFile(), target.getName() + ".old");
+        deleteIfExists(backup);
+
+        if (target.exists() && !target.renameTo(backup)) {
+            throw new IOException("Unable to preserve the existing support archive");
+        }
+        if (!replacement.renameTo(target)) {
+            if (backup.exists() && !backup.renameTo(target)) {
+                Log.e("setupFiles", "Unable to restore the previous support archive");
+            }
+            throw new IOException("Unable to activate the new support archive");
+        }
+        deleteIfExists(backup);
     }
 
     private void migrateLegacyAppDataIfNeeded(File targetRootFolder) {

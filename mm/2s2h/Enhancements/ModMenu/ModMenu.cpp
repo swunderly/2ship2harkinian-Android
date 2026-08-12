@@ -123,8 +123,31 @@ bool IsValidExtension(std::string extension) {
 }
 
 static bool archivesAdded = false;
+static bool recoveryChecked = false;
+static bool skipModsThisRun = false;
+
+static void CheckAndroidRecoveryMode() {
+#if defined(__ANDROID__)
+    if (recoveryChecked) {
+        return;
+    }
+    recoveryChecked = true;
+
+    std::filesystem::path marker =
+        std::filesystem::path(Ship::Context::GetAppDirectoryPath(appShortName)) / ".android_safe_mode";
+    if (std::filesystem::exists(marker)) {
+        skipModsThisRun = true;
+        std::error_code error;
+        std::filesystem::remove(marker, error);
+        SPDLOG_WARN("Previous Android startup failed; skipping mod archives for this launch");
+    }
+#endif
+}
 
 void UpdateModFiles(bool init = false, bool reset = false) {
+    if (init) {
+        CheckAndroidRecoveryMode();
+    }
     if (init || reset) {
         enabledModFiles.clear();
         enabledModFiles = GetEnabledModsFromCVar();
@@ -165,13 +188,15 @@ void UpdateModFiles(bool init = false, bool reset = false) {
             }
             if (init && !archivesAdded) {
                 archivesAdded = true;
-                std::vector<std::string> enabledTemp(enabledModFiles);
-                for (std::string mod : enabledTemp) {
-                    if (filePaths.contains(mod)) {
-                        GetArchiveManager()->AddArchive(filePaths.at(mod).generic_string());
-                    } else {
-                        enabledModFiles.erase(std::find(enabledModFiles.begin(), enabledModFiles.end(), mod));
-                        changed = true;
+                if (!skipModsThisRun) {
+                    std::vector<std::string> enabledTemp(enabledModFiles);
+                    for (std::string mod : enabledTemp) {
+                        if (filePaths.contains(mod)) {
+                            GetArchiveManager()->AddArchive(filePaths.at(mod).generic_string());
+                        } else {
+                            enabledModFiles.erase(std::find(enabledModFiles.begin(), enabledModFiles.end(), mod));
+                            changed = true;
+                        }
                     }
                 }
             }

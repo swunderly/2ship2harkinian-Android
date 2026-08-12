@@ -35,12 +35,12 @@ final class AndroidCrashReporter {
     private AndroidCrashReporter() {
     }
 
-    static synchronized void install(Context context, File preferredDirectory) {
+    static synchronized boolean install(Context context, File preferredDirectory) {
         reportDirectory = chooseReportDirectory(context, preferredDirectory);
-        capturePreviousExit(context);
+        boolean recoverWithoutMods = capturePreviousExit(context);
 
         if (installed) {
-            return;
+            return recoverWithoutMods;
         }
 
         Thread.UncaughtExceptionHandler previousHandler = Thread.getDefaultUncaughtExceptionHandler();
@@ -51,6 +51,7 @@ final class AndroidCrashReporter {
             }
         });
         installed = true;
+        return recoverWithoutMods;
     }
 
     static File getNativeReportFile() {
@@ -87,14 +88,14 @@ final class AndroidCrashReporter {
         }
     }
 
-    private static void capturePreviousExit(Context context) {
+    private static boolean capturePreviousExit(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            return;
+            return false;
         }
 
         ActivityManager activityManager = context.getSystemService(ActivityManager.class);
         if (activityManager == null) {
-            return;
+            return false;
         }
 
         SharedPreferences preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -109,8 +110,14 @@ final class AndroidCrashReporter {
             writeExitReport(exit);
             copyExitTrace(exit);
             preferences.edit().putLong(PREF_LAST_EXIT, exit.getTimestamp()).apply();
-            return;
+            return isNativeStartupFailure(exit);
         }
+        return false;
+    }
+
+    private static boolean isNativeStartupFailure(ApplicationExitInfo exit) {
+        return exit.getReason() == ApplicationExitInfo.REASON_CRASH_NATIVE ||
+                (exit.getReason() == ApplicationExitInfo.REASON_SIGNALED && exit.getStatus() == 6);
     }
 
     private static boolean isUsefulExit(ApplicationExitInfo exit) {

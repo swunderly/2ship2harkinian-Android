@@ -204,7 +204,9 @@ OTRGlobals::OTRGlobals() {
 
     previousImGuiScaleIndex = -1;
     previousImGuiScale = defaultImGuiScale;
+#if !defined(__ANDROID__)
     ScaleImGui();
+#endif
 }
 
 typedef enum ExtractSteps {
