@@ -85,3 +85,27 @@ if strings_path.exists():
         print("Test app renamed to 2S2H Grandma Fix.")
     else:
         print("App name already changed or did not match expected text.")
+
+# ------------------------------------------------------------
+# Give the patched test app its own data directory.
+# This prevents it from touching the normal /2S2H folder.
+# ------------------------------------------------------------
+
+main_activity = Path(
+    "Android/app/src/main/java/com/twoshipfork/mm/MainActivity.java"
+)
+
+main_text = main_activity.read_text()
+
+old_default = '''return new File(Environment.getExternalStorageDirectory(), "2S2H");'''
+
+new_default = '''return new File(Environment.getExternalStorageDirectory(), "2S2H-GrandmaFix");'''
+
+if old_default in main_text:
+    main_text = main_text.replace(old_default, new_default, 1)
+    main_activity.write_text(main_text)
+    print("Patched app data folder changed to /2S2H-GrandmaFix.")
+elif '"2S2H-GrandmaFix"' in main_text:
+    print("Patched app data folder already changed.")
+else:
+    raise SystemExit("ERROR: Could not locate default 2S2H data folder")
