@@ -34,6 +34,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Apply Grandma CI8 crash fix
+        run: python3 scripts/apply_grandma_ci8_fix.py
+
       - name: Install dependencies
         run: |
           sudo apt-get update
