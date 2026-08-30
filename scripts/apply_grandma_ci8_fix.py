@@ -3,50 +3,62 @@ from pathlib import Path
 # ------------------------------------------------------------
 # Fix G_BG_1CYC's background texel-count calculation.
 #
+# IMPORTANT: interpreter.cpp contains the same old LoadBlock expression
+# in both Gfxs2dexBgCopy and Gfxs2dexBg1cyc. Grandma's stories use the
+# G_BG_1CYC path, so this patch deliberately scopes the replacement to
+# Interpreter::Gfxs2dexBg1cyc instead of replacing the first occurrence
+# in the file.
+#
 # uObjBg.imageW/imageH are u10.2 fixed-point values. Majora's Mask's
-# Prerender_DrawBackground2D intentionally stores them as:
-#
-#   imageW = width  * 4 + 1
-#   imageH = height * 4 + 1
-#
-# The existing libultraship code multiplies the raw fixed-point values
-# first and shifts the product afterward:
-#
-#   (imageW * imageH >> 4)
-#
-# For a 320x240 Grandma story background that becomes
-# (1281 * 961 >> 4) = 76940 instead of 320 * 240 = 76800.
-# Decode each fixed-point dimension into integer pixels FIRST, then
-# multiply them. This is the narrow root-cause fix for the 140-byte
-# over-read seen in the Android crash/logs.
+# Prerender_DrawBackground2D commonly stores them as width*4+1 and
+# height*4+1. Multiplying the raw fixed-point values before shifting can
+# therefore over-count pixels. For 320x240, 1281*961>>4 = 76940, while
+# (1281>>2)*(961>>2) = 76800.
 # ------------------------------------------------------------
 
 path = Path("libultraship/src/fast/interpreter.cpp")
 text = path.read_text()
 
+fn_marker = "void Interpreter::Gfxs2dexBg1cyc(F3DuObjBg* bg)"
+fn_start = text.find(fn_marker)
+if fn_start == -1:
+    raise SystemExit("ERROR: Could not locate Interpreter::Gfxs2dexBg1cyc")
+
+fn_end = text.find("\nvoid Interpreter::", fn_start + len(fn_marker))
+if fn_end == -1:
+    fn_end = len(text)
+
+bg1cyc = text[fn_start:fn_end]
+
 old_load = """    GfxDpLoadBlock(G_TX_LOADTILE, 0, 0, (bg->b.imageW * bg->b.imageH >> 4) - 1, 0);
 """
 
 new_load = """    // imageW/imageH are u10.2 fixed-point. Convert EACH dimension to pixels before multiplying.
-    // MM commonly stores width*4+1 and height*4+1, so shifting only after multiplication over-counts texels.
     GfxDpLoadBlock(G_TX_LOADTILE, 0, 0, ((bg->b.imageW >> 2) * (bg->b.imageH >> 2)) - 1, 0);
 """
 
-if old_load in text:
-    text = text.replace(old_load, new_load, 1)
-    path.write_text(text)
-    print("G_BG_1CYC fixed-point texel-count fix applied successfully.")
-elif "Convert EACH dimension to pixels before multiplying" in text:
-    print("G_BG_1CYC fixed-point texel-count fix already present.")
+if old_load in bg1cyc:
+    bg1cyc = bg1cyc.replace(old_load, new_load, 1)
+elif "Convert EACH dimension to pixels before multiplying" in bg1cyc:
+    print("G_BG_1CYC fixed-point texel-count fix already present in correct function.")
 else:
-    raise SystemExit("ERROR: Could not locate G_BG_1CYC LoadBlock texel-count expression")
+    raise SystemExit("ERROR: Could not locate old LoadBlock expression inside Gfxs2dexBg1cyc")
+
+# Build-time verification: do not silently succeed if the old expression is
+# still present in the Grandma rendering function.
+if "(bg->b.imageW * bg->b.imageH >> 4)" in bg1cyc:
+    raise SystemExit("ERROR: Gfxs2dexBg1cyc still contains the old texel-count expression")
+if "((bg->b.imageW >> 2) * (bg->b.imageH >> 2)) - 1" not in bg1cyc:
+    raise SystemExit("ERROR: Gfxs2dexBg1cyc does not contain the corrected texel-count expression")
+
+text = text[:fn_start] + bg1cyc + text[fn_end:]
+path.write_text(text)
+print("G_BG_1CYC texel-count fix applied to the correct function and verified.")
 
 # ------------------------------------------------------------
 # Keep the CI8 resource bounds check as a defensive second layer.
-# With the G_BG_1CYC texel count fixed above, Grandma's 320x240 CI8
-# background should request exactly 76,800 bytes and never need this
-# clamp. If a different malformed load ever occurs, this still prevents
-# a native out-of-bounds read.
+# Once the G_BG_1CYC load above is correct, Grandma's 320x240 CI8 image
+# should request exactly 76,800 bytes, so this clamp should not fire.
 # ------------------------------------------------------------
 
 text = path.read_text()
