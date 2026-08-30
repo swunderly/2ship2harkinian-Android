@@ -1,43 +1,52 @@
 from pathlib import Path
 
 # ------------------------------------------------------------
-# Patch libultraship's G_BG_1CYC row stride.
+# Fix G_BG_1CYC's background texel-count calculation.
 #
-# uObjBg.imageX is the starting X-coordinate within the texture,
-# while imageW is the FULL texture width. The current renderer
-# incorrectly uses (imageW - imageX) as the row width. That makes
-# CI8 background decoding skip bytes at the end of every row.
-# Grandma's 320x240 story backgrounds then walk off the 76,800-byte
-# source image and crash. Use the full image width for the stride.
+# uObjBg.imageW/imageH are u10.2 fixed-point values. Majora's Mask's
+# Prerender_DrawBackground2D intentionally stores them as:
+#
+#   imageW = width  * 4 + 1
+#   imageH = height * 4 + 1
+#
+# The existing libultraship code multiplies the raw fixed-point values
+# first and shifts the product afterward:
+#
+#   (imageW * imageH >> 4)
+#
+# For a 320x240 Grandma story background that becomes
+# (1281 * 961 >> 4) = 76940 instead of 320 * 240 = 76800.
+# Decode each fixed-point dimension into integer pixels FIRST, then
+# multiply them. This is the narrow root-cause fix for the 140-byte
+# over-read seen in the Android crash/logs.
 # ------------------------------------------------------------
 
 path = Path("libultraship/src/fast/interpreter.cpp")
 text = path.read_text()
 
-old_bg_stride = """    GfxDpSetTile(bg->b.imageFmt, bg->b.imageSiz, (((lrs - uls) * bg->b.imageSiz) + 7) >> 3, 0, G_TX_RENDERTILE,
-                 bg->b.imagePal, 0, 0, 0, 0, 0, 0);
+old_load = """    GfxDpLoadBlock(G_TX_LOADTILE, 0, 0, (bg->b.imageW * bg->b.imageH >> 4) - 1, 0);
 """
 
-new_bg_stride = """    // imageW is the full texture width; imageX is only the starting S coordinate.
-    // The render-tile row stride must therefore use the full width, not (imageW - imageX).
-    GfxDpSetTile(bg->b.imageFmt, bg->b.imageSiz, ((lrs * bg->b.imageSiz) + 7) >> 3, 0, G_TX_RENDERTILE,
-                 bg->b.imagePal, 0, 0, 0, 0, 0, 0);
+new_load = """    // imageW/imageH are u10.2 fixed-point. Convert EACH dimension to pixels before multiplying.
+    // MM commonly stores width*4+1 and height*4+1, so shifting only after multiplication over-counts texels.
+    GfxDpLoadBlock(G_TX_LOADTILE, 0, 0, ((bg->b.imageW >> 2) * (bg->b.imageH >> 2)) - 1, 0);
 """
 
-if old_bg_stride in text:
-    text = text.replace(old_bg_stride, new_bg_stride, 1)
+if old_load in text:
+    text = text.replace(old_load, new_load, 1)
     path.write_text(text)
-    print("G_BG_1CYC full-width row stride fix applied successfully.")
-elif "The render-tile row stride must therefore use the full width" in text:
-    print("G_BG_1CYC row stride fix already present.")
+    print("G_BG_1CYC fixed-point texel-count fix applied successfully.")
+elif "Convert EACH dimension to pixels before multiplying" in text:
+    print("G_BG_1CYC fixed-point texel-count fix already present.")
 else:
-    raise SystemExit("ERROR: Could not locate G_BG_1CYC render-tile stride")
+    raise SystemExit("ERROR: Could not locate G_BG_1CYC LoadBlock texel-count expression")
 
 # ------------------------------------------------------------
-# Keep a defensive CI8 bounds check as a second layer of safety.
-# With the stride fixed above, Grandma's background should now
-# consume all 320x240 = 76,800 source bytes without hitting this
-# guard early.
+# Keep the CI8 resource bounds check as a defensive second layer.
+# With the G_BG_1CYC texel count fixed above, Grandma's 320x240 CI8
+# background should request exactly 76,800 bytes and never need this
+# clamp. If a different malformed load ever occurs, this still prevents
+# a native out-of-bounds read.
 # ------------------------------------------------------------
 
 text = path.read_text()
@@ -100,7 +109,7 @@ else:
     print("Grandma CI8 bounds patch applied successfully.")
 
 # ------------------------------------------------------------
-# Rename the TEST app so it is visually distinguishishable from
+# Rename the TEST app so it is visually distinguishable from
 # the untouched official Linkzenic installation.
 # ------------------------------------------------------------
 
