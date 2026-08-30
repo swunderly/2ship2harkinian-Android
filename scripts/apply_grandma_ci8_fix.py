@@ -1,13 +1,46 @@
 from pathlib import Path
 
 # ------------------------------------------------------------
-# Patch libultraship CI8 decoding to prevent Grandma's story
-# from reading beyond the end of its background image.
+# Patch libultraship's G_BG_1CYC row stride.
+#
+# uObjBg.imageX is the starting X-coordinate within the texture,
+# while imageW is the FULL texture width. The current renderer
+# incorrectly uses (imageW - imageX) as the row width. That makes
+# CI8 background decoding skip bytes at the end of every row.
+# Grandma's 320x240 story backgrounds then walk off the 76,800-byte
+# source image and crash. Use the full image width for the stride.
 # ------------------------------------------------------------
 
 path = Path("libultraship/src/fast/interpreter.cpp")
 text = path.read_text()
 
+old_bg_stride = """    GfxDpSetTile(bg->b.imageFmt, bg->b.imageSiz, (((lrs - uls) * bg->b.imageSiz) + 7) >> 3, 0, G_TX_RENDERTILE,
+                 bg->b.imagePal, 0, 0, 0, 0, 0, 0);
+"""
+
+new_bg_stride = """    // imageW is the full texture width; imageX is only the starting S coordinate.
+    // The render-tile row stride must therefore use the full width, not (imageW - imageX).
+    GfxDpSetTile(bg->b.imageFmt, bg->b.imageSiz, ((lrs * bg->b.imageSiz) + 7) >> 3, 0, G_TX_RENDERTILE,
+                 bg->b.imagePal, 0, 0, 0, 0, 0, 0);
+"""
+
+if old_bg_stride in text:
+    text = text.replace(old_bg_stride, new_bg_stride, 1)
+    path.write_text(text)
+    print("G_BG_1CYC full-width row stride fix applied successfully.")
+elif "The render-tile row stride must therefore use the full width" in text:
+    print("G_BG_1CYC row stride fix already present.")
+else:
+    raise SystemExit("ERROR: Could not locate G_BG_1CYC render-tile stride")
+
+# ------------------------------------------------------------
+# Keep a defensive CI8 bounds check as a second layer of safety.
+# With the stride fixed above, Grandma's background should now
+# consume all 320x240 = 76,800 source bytes without hitting this
+# guard early.
+# ------------------------------------------------------------
+
+text = path.read_text()
 start = text.index("void Interpreter::ImportTextureCi8")
 end = text.find("\nvoid Interpreter::", start + 1)
 
@@ -67,7 +100,7 @@ else:
     print("Grandma CI8 bounds patch applied successfully.")
 
 # ------------------------------------------------------------
-# Rename the TEST app so it is visually distinguishable from
+# Rename the TEST app so it is visually distinguishishable from
 # the untouched official Linkzenic installation.
 # ------------------------------------------------------------
 
@@ -98,7 +131,6 @@ main_activity = Path(
 main_text = main_activity.read_text()
 
 old_default = '''return new File(Environment.getExternalStorageDirectory(), "2S2H");'''
-
 new_default = '''return new File(Environment.getExternalStorageDirectory(), "2S2H-GrandmaFix");'''
 
 if old_default in main_text:
