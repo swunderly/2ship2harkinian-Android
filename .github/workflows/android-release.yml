@@ -37,6 +37,9 @@ jobs:
       - name: Apply Grandma CI8 crash fix
         run: python3 scripts/apply_grandma_ci8_fix.py
 
+      - name: Apply Save Editor touch fix
+        run: python3 scripts/apply_save_editor_touch_fix.py
+
       - name: Install dependencies
         run: |
           sudo apt-get update
