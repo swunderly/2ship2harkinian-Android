@@ -14,6 +14,7 @@ on:
   push:
     branches:
       - android
+      - Save-Editor-Touch-Fix
     paths:
       - "Android/**"
       - "CMake/**"
@@ -146,14 +147,14 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           app_id_args=()
-          if [[ '${{ github.event_name }}' == 'workflow_dispatch' && '${{ inputs.install_target }}' == 'test' ]]; then
+          if [[ ( '${{ github.event_name }}' == 'workflow_dispatch' && '${{ inputs.install_target }}' == 'test' ) || '${{ github.ref_name }}' == 'Save-Editor-Touch-Fix' ]]; then
             app_id_args+=('-PtwoShipApplicationId=com.twoshipfork.mm.touchcontroltest')
           fi
           ./gradlew :app:assembleRelease "${app_id_args[@]}"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: 2Ship-Android-${{ github.event_name == 'workflow_dispatch' && inputs.install_target || 'production' }}
+          name: 2Ship-Android-${{ (github.event_name == 'workflow_dispatch' && inputs.install_target) || (github.ref_name == 'Save-Editor-Touch-Fix' && 'test') || 'production' }}
           path: Android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
