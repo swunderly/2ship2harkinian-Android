@@ -24,6 +24,7 @@ on:
       - "libultraship"
       - "libultraship/**"
       - "mm/**"
+      - "scripts/**"
       - ".github/workflows/android-release.yml"
       - ".github/workflows/apt-deps.txt"
 
