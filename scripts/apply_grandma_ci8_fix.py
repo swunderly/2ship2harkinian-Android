@@ -33,12 +33,5 @@ strings = strings_path.read_text()
 strings = strings.replace(">2 Ship 2 Harkinian<", ">2S2H Grandma Fix<")
 strings_path.write_text(strings)
 
-# Keep the test APK on a separate data directory.
-activity_path = Path("Android/app/src/main/java/com/twoshipfork/mm/MainActivity.java")
-activity = activity_path.read_text()
-activity = activity.replace(
-    'return new File(Environment.getExternalStorageDirectory(), "2S2H");',
-    'return new File(Environment.getExternalStorageDirectory(), "2S2H-GrandmaFix");',
-    1,
-)
-activity_path.write_text(activity)
+# Intentionally leave MainActivity's normal data-directory behavior unchanged.
+# Both the official app and this test build should use the standard "2S2H" folder.
