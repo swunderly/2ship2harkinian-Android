@@ -27,10 +27,10 @@ text = text[:start] + func + text[end:]
 path.write_text(text)
 print("Applied G_BG_1CYC fixed-point texel-count fix.")
 
-# Keep the test APK visually distinct from the normal installation.
+# Use the short launcher/app label requested for the Android build.
 strings_path = Path("Android/app/src/main/res/values/strings.xml")
 strings = strings_path.read_text()
-strings = strings.replace(">2 Ship 2 Harkinian<", ">2S2H Grandma Fix<")
+strings = strings.replace(">2 Ship 2 Harkinian<", ">2S2H<")
 strings_path.write_text(strings)
 
 # Intentionally leave MainActivity's normal data-directory behavior unchanged.
