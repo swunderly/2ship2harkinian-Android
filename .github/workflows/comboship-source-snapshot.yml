@@ -1,0 +1,55 @@
+name: ComboShip Android source snapshot
+on:
+  push:
+    branches: [comboship-android-2026-09-25]
+    paths: [.github/workflows/comboship-source-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out combined engine at reviewed revision
+        uses: actions/checkout@v4
+        with:
+          repository: Varuuna/ComboShip
+          ref: 94eb185e4abcc2d568aa8241fa02c43cdd86c439
+          path: sources/comboship
+          persist-credentials: false
+      - name: Check out Android MM reference
+        uses: actions/checkout@v4
+        with:
+          repository: linkzenic/2ship2harkinian-Android
+          ref: f3b83e517d44c60d0aa4955348bb5d6154856030
+          path: sources/mm-android
+          submodules: recursive
+          persist-credentials: false
+      - name: Check out Android OoT reference
+        uses: actions/checkout@v4
+        with:
+          repository: linkzenic/Shipwright-Android
+          ref: 94e8d7af3fb3a2e21fb5bf1d250cd0a63a5dd09d
+          path: sources/oot-android
+          submodules: recursive
+          persist-credentials: false
+      - name: Record provenance and archive source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          for repo in sources/*; do
+            printf '%s ' "$repo"
+            git -C "$repo" rev-parse HEAD
+            git -C "$repo" submodule status --recursive
+          done > sources/PROVENANCE.txt
+          tar --exclude=.git -czf comboship-android-source-snapshots.tar.gz sources
+          sha256sum comboship-android-source-snapshots.tar.gz > SHA256SUMS.txt
+      - name: Upload source snapshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: comboship-android-source-snapshots
+          path: |
+            comboship-android-source-snapshots.tar.gz
+            SHA256SUMS.txt
+          retention-days: 7
+          if-no-files-found: error
