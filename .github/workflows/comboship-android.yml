@@ -14,19 +14,27 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-        with: {persist-credentials: false}
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            ComboAndroid
+            .github
       - uses: actions/checkout@v4
         with:
           repository: libsdl-org/SDL
           ref: release-2.32.10
           path: sdl-reference
           persist-credentials: false
+          sparse-checkout: android-project/app/src/main/java
       - uses: actions/setup-java@v4
         with: {distribution: temurin, java-version: '17'}
       - uses: gradle/actions/setup-gradle@v4
         with: {gradle-version: '8.11.1'}
       - name: Run ROM import, locking, input, and path unit tests
-        run: bash ComboAndroid/tools/run_tests.sh 2>&1 | tee unit-tests.log
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ComboAndroid/tools/run_tests.sh 2>&1 | tee unit-tests.log
       - name: Compile Android resources and all Java against the SDK without making an APK
         shell: bash
         run: |
@@ -54,7 +62,11 @@ jobs:
       CCACHE_MAXSIZE: 2G
     steps:
       - uses: actions/checkout@v4
-        with: {persist-credentials: false}
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            ComboAndroid
+            .github
       - uses: actions/checkout@v4
         with:
           repository: Varuuna/ComboShip
