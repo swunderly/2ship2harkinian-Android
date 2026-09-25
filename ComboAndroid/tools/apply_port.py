@@ -9,10 +9,10 @@ import subprocess
 PIN = '94eb185e4abcc2d568aa8241fa02c43cdd86c439'
 def replace(root, relative, old, new, count=1):
     path=root/relative
-    text=path.read_text()
+    text=path.read_text(encoding='utf-8')
     actual=text.count(old)
     if actual != count: raise RuntimeError(f'{relative}: expected {count} patch anchors, found {actual}. Upstream drift.')
-    path.write_text(text.replace(old,new))
+    path.write_text(text.replace(old,new), encoding='utf-8', newline='\n')
 def apply(root,overlay):
     marker=root/'.comboship-android-patched.json'
     if marker.exists(): raise RuntimeError('Already patched. Use a fresh checkout; modifications are never reset.')
@@ -22,7 +22,7 @@ def apply(root,overlay):
     if subprocess.check_output(['git','-C',str(root),'status','--porcelain','--untracked-files=no'],text=True).strip():
         raise RuntimeError('Refusing to patch tracked local modifications.')
     if (root/'ComboAndroid').exists(): raise RuntimeError('Overlay destination already exists.')
-    shutil.copytree(overlay,root/'ComboAndroid',ignore=shutil.ignore_patterns('build','.gradle','.cxx','__pycache__','local.properties','*.apk'))
+    shutil.copytree(overlay,root/'ComboAndroid',ignore=shutil.ignore_patterns('build','.gradle','.cxx','__pycache__','local.properties','*.apk','assets','jniLibs','sdl-java'))
     for relative in ['CMakeLists.txt','soh/CMakeLists.txt','mm/CMakeLists.txt','OTRExporter/CMakeLists.txt']:
         replace(root,relative,'set(CMAKE_SYSTEM_VERSION 10.0 CACHE STRING "" FORCE)','if(WIN32)\n    set(CMAKE_SYSTEM_VERSION 10.0 CACHE STRING "" FORCE)\nendif()')
     replace(root,'CMakeLists.txt','# Shared libultraship (in Combo directory)','include("${CMAKE_SOURCE_DIR}/ComboAndroid/cmake/AndroidDependencies.cmake")\n\n# Shared libultraship (in Combo directory)')
@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
             old=f'    find_package({package} REQUIRED)'
             new=f'    if(ANDROID)\n        find_package({package} CONFIG REQUIRED)\n    else()\n{old}\n    endif()'
             replace(root,f'{game}/CMakeLists.txt',old,new)
-        with (root/game/'CMakeLists.txt').open('a') as out:
+        with (root/game/'CMakeLists.txt').open('a', encoding='utf-8', newline='\n') as out:
             out.write('''
 if(ANDROID)
     target_compile_options(${PROJECT_NAME} PRIVATE
@@ -85,6 +85,11 @@ endif()
 ''')
     subprocess.run(['git','-C',str(root),'apply','--check',str(root/'ComboAndroid/patches/mm-qol-backports.patch')],check=True)
     subprocess.run(['git','-C',str(root),'apply',str(root/'ComboAndroid/patches/mm-qol-backports.patch')],check=True)
+    runtime_patch=root/'ComboAndroid/patches/android-runtime.patch'
+    subprocess.run(['git','-C',str(root),'apply','--check',str(runtime_patch)],check=True)
+    subprocess.run(['git','-C',str(root),'apply',str(runtime_patch)],check=True)
+    import sys
+    subprocess.run([sys.executable,str(root/'ComboAndroid/tools/backport_fork_fixes.py')],cwd=root,check=True)
     changed=subprocess.check_output(['git','-C',str(root),'diff','--name-only'],text=True).splitlines()
     manifest={'upstream':PIN,'patchedFiles':{name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in changed}}
     marker.write_text(json.dumps(manifest,indent=2)+'\n')

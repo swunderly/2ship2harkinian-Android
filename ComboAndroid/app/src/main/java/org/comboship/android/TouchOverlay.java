@@ -21,41 +21,56 @@ public final class TouchOverlay extends View {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final SharedPreferences preferences;
     private final Runnable menu,options;
-    private boolean showPad,editing,floating;
+    private boolean showPad,editing,floating,suppressed;
     private float opacity,scale;
     private String profile="wide";
+    private int faceLayout;
     public TouchOverlay(Context context,Runnable menu,Runnable options){
         super(context);this.menu=menu;this.options=options;
         preferences=context.getSharedPreferences("combo-touch",Context.MODE_PRIVATE);
         showPad=preferences.getBoolean("show",true);floating=preferences.getBoolean("floating",false);
         opacity=preferences.getFloat("opacity",.48f);scale=preferences.getFloat("scale",1f);
+        faceLayout=preferences.getInt("face-layout",0);
         setContentDescription("Touch gamepad. Tap Menu for game settings; hold Menu for touch options.");setFocusable(false);
     }
     private void build(){
-        release();controls.clear();profile=getWidth()>getHeight()*1.65f?"wide":"fold";
+        if(getWidth()==0 || getHeight()==0)return;
+        release();controls.clear();profile=(getWidth()>getHeight()*1.65f?"wide":"fold")+"."+faceLayout;
         float unit=Math.min(getWidth(),getHeight());
         float r=Math.max(23*getResources().getDisplayMetrics().density,unit*.052f)*scale;
         add(MENU,editing?"Done":"Menu",.5f,.10f,r*1.2f);
         add(LEFT,"Move",.16f,.73f,r*2.0f);add(RIGHT,"Camera",.64f,.77f,r*1.5f);
-        add(0,"A",.90f,.83f,r*1.2f);add(1,"B",.80f,.72f,r);
-        add(9,"L",.18f,.30f,r);add(Z,"Z",.07f,.30f,r);add(R,"R",.91f,.30f,r);
+        if(faceLayout==2){
+            add(0,"A",.88f,.86f,r*1.2f);add(1,"B",.77f,.91f,r*.8f);
+            add(2,"X",.96f,.73f,r*.8f);add(3,"Y",.84f,.66f,r*.8f);
+        }else if(faceLayout==1){
+            add(0,"A",.86f,.91f,r);add(1,"B",.94f,.81f,r);
+            add(2,"X",.78f,.81f,r);add(3,"Y",.86f,.71f,r);
+        }else{
+            add(0,"A",.94f,.81f,r);add(1,"B",.86f,.91f,r);
+            add(2,"X",.86f,.71f,r);add(3,"Y",.78f,.81f,r);
+        }
+        add(9,"L",.18f,.30f,r);add(Z,"Z",.07f,.30f,r);add(R,"R",.91f,.16f,r);
         add(6,"Start",.48f,.87f,r*.95f);
         add(11,"↑",.35f,.61f,r*.76f);add(12,"↓",.35f,.79f,r*.76f);
         add(13,"←",.30f,.70f,r*.76f);add(14,"→",.40f,.70f,r*.76f);
-        add(CU,"C↑",.88f,.44f,r*.80f);add(CD,"C↓",.88f,.62f,r*.80f);
-        add(CL,"C←",.83f,.53f,r*.80f);add(CR,"C→",.94f,.53f,r*.80f);invalidate();
+        add(CU,"C↑",.90f,.29f,r*.80f);add(CD,"C↓",.90f,.49f,r*.80f);
+        add(CL,"C←",.835f,.39f,r*.80f);add(CR,"C→",.965f,.39f,r*.80f);invalidate();
     }
     private void add(int id,String label,float x,float y,float r){
         Control c=new Control(id,label,x,y,r);
-        if(id!=MENU){c.x=preferences.getFloat(profile+"."+id+".x",x);c.y=preferences.getFloat(profile+"."+id+".y",y);} controls.add(c);
+        if(id!=MENU){c.x=preferences.getFloat(profile+"."+id+".x",x);c.y=preferences.getFloat(profile+"."+id+".y",y);}
+        c.x=clamp(c.x,r/getWidth(),1-r/getWidth());c.y=clamp(c.y,r/getHeight(),1-r/getHeight());controls.add(c);
     }
     @Override protected void onSizeChanged(int w,int h,int oldw,int oldh){super.onSizeChanged(w,h,oldw,oldh);build();}
     @Override protected void onDraw(Canvas canvas){
         super.onDraw(canvas);
         for(Control c:controls){
-            if(!showPad && c.id!=MENU && !editing)continue;
+            if((!showPad || suppressed) && c.id!=MENU && !editing)continue;
             float x=c.x*getWidth(),y=c.y*getHeight();boolean pressed=false;
-            for(Finger finger:fingers.values()) if(finger.control==c){pressed=true;break;}
+            for(Finger finger:fingers.values()) if(finger.control==c){
+                pressed=true;if(c.id==LEFT && floating && !editing){x=finger.originX;y=finger.originY;}break;
+            }
             paint.setStyle(Paint.Style.FILL);paint.setColor(Color.BLACK);paint.setAlpha((int)(opacity*170));canvas.drawCircle(x,y,c.r,paint);
             paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(editing?4:2);paint.setColor(Color.WHITE);paint.setAlpha((int)(255*opacity));canvas.drawCircle(x,y,c.r,paint);
             if(c.id==LEFT || c.id==RIGHT){
@@ -72,9 +87,13 @@ public final class TouchOverlay extends View {
     }
     private Control hit(float x,float y){
         for(int i=controls.size()-1;i>=0;i--){Control c=controls.get(i);
-            if(!showPad && c.id!=MENU && !editing)continue;
+            if((!showPad || suppressed) && c.id!=MENU && !editing)continue;
             if(Math.hypot(x-c.x*getWidth(),y-c.y*getHeight())<=c.r*1.1f)return c;
-        }return null;
+        }
+        if(floating && showPad && !suppressed && !editing && x<getWidth()*.43f && y>getHeight()*.35f){
+            for(Control c:controls)if(c.id==LEFT)return c;
+        }
+        return null;
     }
     @Override public boolean onTouchEvent(MotionEvent event){
         int action=event.getActionMasked(),index=event.getActionIndex(),id=event.getPointerId(index);
@@ -121,6 +140,8 @@ public final class TouchOverlay extends View {
     public void toggleVisible(){showPad=!showPad;preferences.edit().putBoolean("show",showPad).apply();release();invalidate();}
     public void toggleFloating(){floating=!floating;preferences.edit().putBoolean("floating",floating).apply();release();}
     public boolean isFloating(){return floating;}
+    public void setFaceLayout(int layout){faceLayout=Math.max(0,Math.min(2,layout));preferences.edit().putInt("face-layout",faceLayout).apply();build();}
+    public void setSuppressed(boolean value){if(suppressed!=value){suppressed=value;release();invalidate();}}
     public boolean isPadVisible(){return showPad;}
     public void editLayout(){showPad=true;editing=true;build();}
     public void changeScale(){scale=scale>=1.3f?.8f:scale+.15f;preferences.edit().putFloat("scale",scale).apply();build();}

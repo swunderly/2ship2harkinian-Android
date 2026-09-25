@@ -12,10 +12,11 @@
 #include <unistd.h>
 #include "InputState.h"
 #include "RuntimePaths.h"
+#include "ship/port/mobile/MobileImpl.h"
 int ComboAndroid_RunDesktopMain(int argc, char** argv);
 namespace {
 comboandroid::InputState input;
-std::atomic<bool> menuRequested{false}, quitRequested{false};
+std::atomic<bool> quitRequested{false}, gameplayActive{false};
 SDL_Joystick* touchJoystick = nullptr;
 void updateTouch(void*) {
     if (!touchJoystick) return;
@@ -26,12 +27,6 @@ void updateTouch(void*) {
         SDL_JoystickSetVirtualAxis(touchJoystick, i, comboandroid::axisToSdl(state.axes[i]));
     for (int i = 4; i < 6; ++i)
         SDL_JoystickSetVirtualAxis(touchJoystick, i, comboandroid::axisToSdl(state.axes[i] * 2.f - 1.f));
-    if (menuRequested.exchange(false)) {
-        SDL_Event down{}; down.type = SDL_KEYDOWN; down.key.state = SDL_PRESSED;
-        down.key.keysym.sym = SDLK_F1; down.key.keysym.scancode = SDL_SCANCODE_F1;
-        SDL_PushEvent(&down);
-        down.type = SDL_KEYUP; down.key.state = SDL_RELEASED; SDL_PushEvent(&down);
-    }
     if (quitRequested.exchange(false)) { SDL_Event event{}; event.type = SDL_QUIT; SDL_PushEvent(&event); }
 }
 void attachTouch() {
@@ -61,16 +56,25 @@ Java_org_comboship_android_GameActivity_nativePad(JNIEnv*, jclass, jint buttons,
         jfloat lx, jfloat ly, jfloat rx, jfloat ry, jfloat lt, jfloat rt) {
     input.set(static_cast<uint32_t>(buttons), {lx, ly, rx, ry, lt, rt});
 }
-extern "C" JNIEXPORT void JNICALL Java_org_comboship_android_GameActivity_nativeMenu(JNIEnv*, jclass) { menuRequested = true; }
+extern "C" JNIEXPORT void JNICALL Java_org_comboship_android_GameActivity_nativeMenu(JNIEnv*, jclass) { Ship::Mobile::RequestMenu(); }
+extern "C" JNIEXPORT jboolean JNICALL Java_org_comboship_android_GameActivity_nativeControlsSuppressed(JNIEnv*, jclass) {
+    return !gameplayActive.load() || Ship::Mobile::IsMenuVisible();
+}
+extern "C" JNIEXPORT void JNICALL Java_org_comboship_android_GameActivity_nativeMenuScale(JNIEnv*, jclass, jfloat scale) {
+    Ship::Mobile::RequestMenuScale(scale);
+}
+void ComboAndroid_SetGameplayActive(bool active) { gameplayActive = active; }
 extern "C" JNIEXPORT void JNICALL Java_org_comboship_android_GameActivity_nativeRelease(JNIEnv*, jclass) { input.releaseAll(); }
 extern "C" JNIEXPORT void JNICALL Java_org_comboship_android_GameActivity_nativeQuit(JNIEnv*, jclass) { quitRequested = true; }
 extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char** argv) {
     std::filesystem::path root;
     try {
-        if (argc != 3) throw std::runtime_error("Expected app-private data and native-library directories.");
+        if (argc != 4) throw std::runtime_error("Expected data directory, native-library directory, and recovery flag.");
         root = comboandroid::requireDirectory(argv[1]);
         const auto native = comboandroid::requireDirectory(argv[2]);
         comboandroid::SessionLock session(root);
+        if (setenv("COMBOSHIP_SKIP_MODS", std::string(argv[3]) == "safe" ? "1" : "0", 1))
+            throw std::runtime_error("Cannot initialize recovery mode.");
         if (setenv("COMBOSHIP_DATA_DIR", root.c_str(), 1) || setenv("COMBOSHIP_NATIVE_LIB_DIR", native.c_str(), 1) || chdir(root.c_str()))
             throw std::runtime_error("Cannot initialize the application data directory.");
         std::error_code ec;
@@ -81,6 +85,7 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char** 
         setvbuf(stdout, nullptr, _IOLBF, 0); setvbuf(stderr, nullptr, _IONBF, 0);
         SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE, "1");
         SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "0");
+        SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
         attachTouch();
         std::ofstream(root / ".running") << "Native session started\n";
         const int result = ComboAndroid_RunDesktopMain(1, argv);

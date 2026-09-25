@@ -11,11 +11,23 @@ public final class GameActivity extends SDLActivity {
     public static native void nativeMenu();
     public static native void nativeRelease();
     public static native void nativeQuit();
+    public static native boolean nativeControlsSuppressed();
+    public static native void nativeMenuScale(float scale);
+    private final Handler uiHandler=new Handler(Looper.getMainLooper());
+    private final Runnable updateControls=new Runnable(){public void run(){
+        if(librariesReady && overlay!=null)overlay.setSuppressed(nativeControlsSuppressed());
+        uiHandler.postDelayed(this,100);
+    }};
     @Override protected String[] getLibraries(){return new String[]{"SDL2","comboship"};}
     @Override protected String getMainFunction(){return "SDL_main";}
-    @Override protected String[] getArguments(){return new String[]{new File(getFilesDir(),"comboship").getAbsolutePath(),getApplicationInfo().nativeLibraryDir};}
+    @Override protected String[] getArguments(){
+        try{return new String[]{DataFiles.root(this).getAbsolutePath(),getApplicationInfo().nativeLibraryDir,
+                getIntent().getBooleanExtra("without-mods",false)?"safe":"normal"};}
+        catch(java.io.IOException error){throw new IllegalStateException(error.getMessage(),error);}
+    }
     @Override public void loadLibraries(){super.loadLibraries();librariesReady=true;}
     @Override protected void onCreate(Bundle saved){
+        CrashReports.install(this);
         super.onCreate(saved);
         if(!librariesReady)return;
         immersive();
@@ -35,23 +47,37 @@ public final class GameActivity extends SDLActivity {
     private void touchOptions(){
         if(overlay==null)return;
         String[] options={overlay.isPadVisible()?"Hide touch controls":"Show touch controls","Move controls (pause the game first)",
-                overlay.isFloating()?"Use fixed movement stick":"Use floating movement stick","Change control size","Change opacity","Reset current screen layout","Exit game"};
+                overlay.isFloating()?"Use fixed movement stick":"Use floating movement stick","Change control size","Change opacity","Reset current screen layout","Menu size","Face-button layout","Exit game"};
         new AlertDialog.Builder(this).setTitle("Touch controls").setItems(options,(dialog,which)->{
             switch(which){case 0:overlay.toggleVisible();break;case 1:overlay.editLayout();break;case 2:overlay.toggleFloating();break;
-                case 3:overlay.changeScale();break;case 4:overlay.changeOpacity();break;case 5:overlay.resetLayout();break;case 6:confirmExit();break;}
+                case 3:overlay.changeScale();break;case 4:overlay.changeOpacity();break;case 5:overlay.resetLayout();break;case 6:menuSize();break;
+                case 7:new AlertDialog.Builder(this).setTitle("Face buttons").setItems(new String[]{"ABXY (Nintendo)","BAYX (Xbox)","GameCube"},(d,w)->overlay.setFaceLayout(w)).show();break;
+                case 8:confirmExit();break;}
         }).setNegativeButton("Close",null).show();
+    }
+    private void menuSize(){
+        String[] labels={"100%","125%","145% (default)","175%","200%","250%","300%"};
+        float[] scales={1f,1.25f,1.45f,1.75f,2f,2.5f,3f};
+        new AlertDialog.Builder(this).setTitle("Menu size").setItems(labels,(dialog,which)->nativeMenuScale(scales[which])).show();
     }
     private void confirmExit(){
         new AlertDialog.Builder(this).setTitle("Exit combined game?").setMessage("Save in the game before exiting. Unsaved progress is not guaranteed to be preserved.")
                 .setPositiveButton("Exit",(dialog,which)->nativeQuit()).setNegativeButton("Keep playing",null).show();
     }
     @Override public void onBackPressed(){if(librariesReady)nativeMenu();else super.onBackPressed();}
-    @Override protected void onPause(){if(overlay!=null)overlay.release();super.onPause();}
-    @Override protected void onResume(){super.onResume();if(librariesReady)immersive();}
+    @Override public boolean dispatchKeyEvent(KeyEvent event){
+        if(librariesReady && event.getKeyCode()==KeyEvent.KEYCODE_BUTTON_SELECT){
+            if(event.getAction()==KeyEvent.ACTION_DOWN && event.getRepeatCount()==0)nativeMenu();
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+    @Override protected void onPause(){uiHandler.removeCallbacks(updateControls);if(overlay!=null)overlay.release();super.onPause();}
+    @Override protected void onResume(){super.onResume();if(librariesReady){immersive();uiHandler.removeCallbacks(updateControls);uiHandler.post(updateControls);}}
     @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(!focus && overlay!=null)overlay.release();if(focus && librariesReady)immersive();}
     @Override protected void onDestroy(){
         boolean finish=isFinishing() && !isChangingConfigurations();
-        if(overlay!=null)overlay.release(); super.onDestroy();
+        uiHandler.removeCallbacks(updateControls);if(overlay!=null)overlay.release(); super.onDestroy();
         // Only this activity's :game process, never setup or the standalone 2S2H app.
         if(finish)android.os.Process.killProcess(android.os.Process.myPid());
     }
