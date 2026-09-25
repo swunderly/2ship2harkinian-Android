@@ -38,6 +38,8 @@ set(SDL2NET_INSTALL OFF CACHE BOOL "No SDK installation" FORCE)
 set(BUILD_SHARED_LIBS ON)
 FetchContent_Declare(SDL2_net GIT_REPOSITORY https://github.com/libsdl-org/SDL_net.git GIT_TAG release-2.2.0 GIT_SHALLOW TRUE OVERRIDE_FIND_PACKAGE)
 FetchContent_MakeAvailable(SDL2_net)
+# Desktop packages expose SDL2/SDL_net.h; an in-tree SDL_net build exposes SDL_net.h.
+configure_file("${sdl2_net_SOURCE_DIR}/SDL_net.h" "${sdl2_BINARY_DIR}/include/SDL2/SDL_net.h" COPYONLY)
 set(BUILD_SHARED_LIBS OFF)
 add_compile_definitions(IMGUI_IMPL_OPENGL_ES3)
 add_link_options("-Wl,-z,max-page-size=16384" "-Wl,-z,common-page-size=16384")

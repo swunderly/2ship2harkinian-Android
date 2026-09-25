@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Package real ARM64 libraries and no-ROM support archives into the Android app."""
-import argparse,hashlib,json,shutil,struct,zipfile
+import argparse,hashlib,json,re,shutil,struct,subprocess,zipfile
 from pathlib import Path
-REQUIRED={'libcomboship.so','libsoh.so','lib2ship.so','libcomboui.so','libultraship.so','libSDL2.so','libc++_shared.so'}
+from verify_native import verify_runtime
+from patch_sdl import patch as patch_sdl
+REQUIRED={'libcomboship.so','libsoh.so','lib2ship.so','libcomboui.so','libultraship.so','libSDL2.so','libSDL2_net.so','libc++_shared.so'}
 def arm64(data,name):
     if len(data)<64 or data[:6]!=b'\x7fELF\x02\x01' or struct.unpack_from('<H',data,18)[0]!=183:
         raise RuntimeError(f'{name} is not a little-endian ARM64 ELF library')
@@ -18,8 +20,12 @@ def copy_tree(source,dest):
     if not source.is_dir():raise RuntimeError(f'Missing directory: {source}')
     shutil.copytree(source,dest,dirs_exist_ok=True)
 def stage(upstream,native,sdl,ndk,app):
+    if not (app/'build.gradle').is_file() or not (app/'src/main/AndroidManifest.xml').is_file():
+        raise RuntimeError('Expected the ComboAndroid app source directory')
     assets=app/'src/main/assets';libs=app/'src/main/jniLibs/arm64-v8a';java=app/'src/main/sdl-java'
     for generated in (assets,libs,java):
+        if not generated.resolve().is_relative_to(app.resolve()) or generated.is_symlink():
+            raise RuntimeError(f'Generated destination escapes app directory: {generated}')
         if generated.exists():shutil.rmtree(generated)
         generated.mkdir(parents=True)
     candidates={}
@@ -28,13 +34,26 @@ def stage(upstream,native,sdl,ndk,app):
             digest=hashlib.sha256(source.read_bytes()).hexdigest()
             if source.name in candidates and candidates[source.name][1]!=digest:raise RuntimeError(f'Conflicting libraries named {source.name}')
             candidates[source.name]=(source,digest)
-    cxx=ndk/'toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so'
+    prebuilts=list((ndk/'toolchains/llvm/prebuilt').glob('*/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so'))
+    if len(prebuilts)!=1:raise RuntimeError('Expected exactly one host NDK runtime')
+    cxx=prebuilts[0]
     candidates['libc++_shared.so']=(cxx,None)
     missing=REQUIRED-candidates.keys()
     if missing:raise RuntimeError(f'Missing real native game libraries: {sorted(missing)}')
     for name,(source,_) in candidates.items():
         arm64(source.read_bytes(),name);shutil.copy2(source,libs/name)
+    launcher=(upstream/'combo/ComboShip.cpp').read_text(encoding='utf-8')
+    exported={name:sorted(set(re.findall(r'GetSym\('+module+r',\s*"([^"]+)"',launcher)))
+        for module,name in [('sohModule','libsoh.so'),('mmModule','lib2ship.so'),('comboUIModule','libcomboui.so')]}
+    verify_runtime({p.name:p.read_bytes() for p in libs.glob('*.so')},exported)
+    (assets/'native-exports.json').write_text(json.dumps(exported,indent=2)+'\n',encoding='utf-8')
+    pin='94eb185e4abcc2d568aa8241fa02c43cdd86c439'
+    patched=subprocess.check_output(['git','-C',str(upstream),'diff',pin,'--name-only'],text=True).splitlines()
+    provenance={'upstream':pin,'androidApi':28,'ndk':'28.2.13676358','abi':'arm64-v8a',
+        'deviceTested':False,'patchedFiles':{p:hashlib.sha256((upstream/p).read_bytes()).hexdigest() for p in patched}}
+    (assets/'build-info.json').write_text(json.dumps(provenance,indent=2)+'\n',encoding='utf-8')
     copy_tree(sdl/'android-project/app/src/main/java',java)
+    patch_sdl(java)
     runtime=assets/'runtime';runtime.mkdir()
     for game,archive in [('soh','soh.o2r'),('mm','2ship.o2r')]:
         source=upstream/game/archive
@@ -57,7 +76,19 @@ def stage(upstream,native,sdl,ndk,app):
     for root,label in ((upstream,'ComboShip'),(upstream/'libultraship','libultraship'),(upstream/'soh','Shipwright'),(upstream/'mm','2Ship'),(sdl,'SDL2')):
         for path in root.glob('*'):
             if path.is_file() and (path.name.upper().startswith('LICENSE') or path.name.upper().startswith('COPYING')):shutil.copy2(path,notices/(label+'-'+path.name))
-    print(f'Staged {len(candidates)} ARM64 libraries and {len(records)} no-ROM support files.')
+    for dependency in sorted((native/'_deps').glob('*-src')):
+        for path in dependency.iterdir():
+            if path.is_file() and path.name.upper().startswith(('LICENSE','COPYING','NOTICE')):
+                shutil.copy2(path,notices/(dependency.name+'-'+path.name))
+    cache=(native/'CMakeCache.txt').read_text(encoding='utf-8')
+    for line in cache.splitlines():
+        if line.startswith('COMBO_VCPKG_PREFIX:'):
+            prefix=Path(line.split('=',1)[1])
+            for copyright in (prefix/'share').glob('*/copyright'):
+                shutil.copy2(copyright,notices/('vcpkg-'+copyright.parent.name+'-copyright.txt'))
+    shutil.copy2(app.parent/'LICENSE',notices/'ComboAndroid-LICENSE')
+    copy_tree(app.parent/'licenses',notices/'ComboAndroid-dependencies')
+    print(f'Staged {len(candidates)} ARM64 libraries, {sum(map(len,exported.values()))} game callbacks, and {len(records)} no-ROM support files.')
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('upstream','native','sdl','ndk','app'):p.add_argument('--'+name,type=Path,required=True)

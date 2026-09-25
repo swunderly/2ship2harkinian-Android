@@ -6,13 +6,11 @@ import java.nio.file.*;
 import java.security.*;
 import java.util.*;
 import java.util.zip.*;
-/** Only this application's private directory is reachable through this API. */
+/** Only this application's selected internal or external directory is reachable through this API. */
 public final class DataFiles {
     private DataFiles() {}
     public static File root(Context context) throws IOException {
-        File root = new File(context.getFilesDir(), "comboship");
-        if (!root.isDirectory() && !root.mkdirs()) throw new IOException("Cannot create the application data directory.");
-        return root.getCanonicalFile();
+        return StorageLocations.current(context);
     }
     private static File child(File root, String relative) throws IOException {
         if (relative.isEmpty() || relative.startsWith("/") || relative.contains("\\") ||
@@ -33,7 +31,7 @@ public final class DataFiles {
         }
         return out.toByteArray();
     }
-    private static String digest(File file) throws IOException {
+    static String digest(File file) throws IOException {
         try (InputStream in = new FileInputStream(file)) {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] bytes = new byte[65536]; int count;
@@ -56,7 +54,10 @@ public final class DataFiles {
                     output.write(buffer,0,count);
                 }
                 if (total==0) throw new IOException("Selected file is empty.");
-                output.flush(); output.getFD().sync();
+                output.flush();
+                // Imported user data is durable before replacement. Bundled support files are
+                // reconstructible and verified on every setup; syncing 9,000 XML files stalls first launch.
+                if(expected==null)output.getFD().sync();
             }
             if (expected!=null && !expected.equals(digest(temporary.toFile()))) throw new IOException("Support-file checksum mismatch.");
             Files.move(temporary,destination.toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
@@ -99,7 +100,7 @@ public final class DataFiles {
         if (destination.exists()) throw new IOException("A mod with that filename exists. No file was overwritten.");
         atomicCopy(stream,destination,null,1024L*1024*1024);
     }
-    public static void exportBackup(File root, OutputStream stream) throws IOException {
+    public static void exportBackup(Context context, File root, OutputStream stream) throws IOException {
         if (stream==null) throw new IOException("Cannot open the backup document.");
         List<Path> candidates=new ArrayList<>();
         try (java.util.stream.Stream<Path> paths=Files.walk(root.toPath())) {
@@ -109,6 +110,9 @@ public final class DataFiles {
         try (ZipOutputStream zip=new ZipOutputStream(new BufferedOutputStream(stream))) {
             zip.putNextEntry(new ZipEntry("backup-info.txt"));
             zip.write(("ComboShip Android state backup\nSource: "+BuildConfig.VERSION_NAME+"\nROMs, support archives, and mods excluded.\n").getBytes(java.nio.charset.StandardCharsets.UTF_8)); zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("android-touch-settings.json"));
+            zip.write(new JSONObject(context.getSharedPreferences("combo-touch",Context.MODE_PRIVATE).getAll())
+                .toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));zip.closeEntry();
             byte[] buffer=new byte[65536];
             for (Path path:candidates) {
                 String relative=root.toPath().relativize(path).toString().replace(File.separatorChar,'/');

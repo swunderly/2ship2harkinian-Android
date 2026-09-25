@@ -7,4 +7,6 @@ ctest --test-dir "$root/build/host-tests" --output-on-failure
 mkdir -p "$root/build/java-tests"
 javac -d "$root/build/java-tests" "$root/app/src/main/java/org/comboship/android/RomImporter.java" "$root/app/src/main/java/org/comboship/android/DataLock.java" "$root/tests/RomImporterTest.java"
 java -cp "$root/build/java-tests" org.comboship.android.RomImporterTest
+javac -cp "$root/build/java-tests" -d "$root/build/java-tests" "$root/app/src/main/java/org/comboship/android/StorageCopy.java" "$root/tests/StorageCopyTest.java"
+java -cp "$root/build/java-tests" org.comboship.android.StorageCopyTest
 python3 -m py_compile "$root"/tools/*.py

@@ -17,6 +17,7 @@ public final class MainActivity extends Activity {
     private final List<Button> actions=new ArrayList<>();
     private TextView status; private File root; private boolean busy;
     @Override public void onCreate(Bundle state) {
+        CrashReports.install(this);
         super.onCreate(state);
         ScrollView scroll=new ScrollView(this);
         LinearLayout body=new LinearLayout(this); body.setOrientation(LinearLayout.VERTICAL);
@@ -29,10 +30,12 @@ public final class MainActivity extends Activity {
         status=new TextView(this); status.setTextSize(15); status.setPadding(0,pad,0,pad); body.addView(status);
         add(body,"Import Ocarina of Time ROM",()->pick(OOT));
         add(body,"Import Majora’s Mask ROM",()->pick(MM));
-        add(body,"Play / open combined randomizer",this::launch);
+        add(body,"Play / open combined randomizer",()->launch(false));
+        add(body,"Play without mods (recovery)",()->launch(true));
         add(body,"Import an OoT mod archive",()->pick(MOD_OOT));
         add(body,"Import an MM mod archive",()->pick(MOD_MM));
         add(body,"Export saves, settings, and logs",this::backup);
+        add(body,"Data location / SD card",this::chooseStorage);
         add(body,"Verify / repair bundled support files",this::prepare);
         add(body,"Instructions and build status",()->new AlertDialog.Builder(this).setTitle("Development build")
             .setMessage("Import your own unmodified, supported N64 ROMs. Byte order is normalized during import; the game extractor checks version compatibility.\n\nUse ComboShip’s own seed generator. Web OoTMM seed compatibility is not assumed.\n\nThe in-game Menu button opens the native QoL, randomizer, graphics, audio, and controller settings. Hold Menu for touch-layout options.\n\nExport a backup before changing builds. This app never accesses or converts your existing standalone 2S2H saves. Backups exclude ROMs and mod archives.\n\nThis is a development port. Compilation does not certify gameplay or full Android QoL parity.")
@@ -46,11 +49,14 @@ public final class MainActivity extends Activity {
     private void setBusy(boolean value,String text) {busy=value; status.setText(text); for(Button button:actions) button.setEnabled(!value);}
     private interface Work {void run() throws Exception;}
     private void execute(String text,Work work,String complete) {
-        if(busy || root==null) return;
+        execute(text,work,complete,false);
+    }
+    private void execute(String text,Work work,String complete,boolean allowMissingStorage) {
+        if(busy || (root==null && !allowMissingStorage)) return;
         setBusy(true,text);
         worker.execute(()->{
             Exception failure=null;
-            try(DataLock ignored=new DataLock(root)){work.run();} catch(Exception error){failure=error;}
+            try(DataLock ignored=root==null?null:new DataLock(root)){work.run();} catch(Exception error){failure=error;}
             final Exception result=failure;
             runOnUiThread(()->{
                 if(isFinishing() || isDestroyed()) return;
@@ -75,6 +81,25 @@ public final class MainActivity extends Activity {
         Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE);
         intent.putExtra(Intent.EXTRA_TITLE,"ComboShip-backup-"+System.currentTimeMillis()+".zip"); startActivityForResult(intent,BACKUP);
     }
+    private void chooseStorage(){
+        try {
+            List<StorageLocations.Location> choices=StorageLocations.available(this);
+            String[] labels=new String[choices.size()];
+            for(int i=0;i<labels.length;i++)labels[i]=choices.get(i).label+"\n"+choices.get(i).directory;
+            new AlertDialog.Builder(this).setTitle("Data location").setItems(labels,(dialog,which)->{
+                File destination=choices.get(which).directory;
+                boolean existing=StorageLocations.hasData(destination);
+                new AlertDialog.Builder(this).setTitle(existing?"Use existing ComboShip data?":"Copy data to this storage?")
+                    .setMessage(existing?"This app already has data at the selected location. It will become the active copy.":
+                        "Saves, settings, ROMs, and mods will be copied and verified. The current copy will be preserved.")
+                    .setPositiveButton(existing?"Use existing":"Copy and switch",(d,w)->execute("Preparing data location…",()->{
+                        StorageLocations.select(this,root,destination,existing);
+                        root=DataFiles.root(this);DataFiles.installSupport(this,root);
+                    },"Data location changed.",true))
+                    .setNegativeButton("Cancel",null).show();
+            }).setNegativeButton("Close",null).show();
+        }catch(IOException error){showError(error);}
+    }
     private String displayName(Uri uri) {
         try(Cursor cursor=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null)) {
             if(cursor!=null && cursor.moveToFirst()) return cursor.getString(0);
@@ -95,21 +120,25 @@ public final class MainActivity extends Activity {
             },"Mod imported into this app only.");
         } else if(request==BACKUP) {
             execute("Exporting a consistent backup…",()->{
-                try(OutputStream out=getContentResolver().openOutputStream(uri,"w")){DataFiles.exportBackup(root,out);}
+                try(OutputStream out=getContentResolver().openOutputStream(uri,"w")){DataFiles.exportBackup(this,root,out);}
             },"Backup exported without ROMs or mods.");
         }
     }
-    private void launch(){
+    private void launch(boolean withoutMods){
         if(root==null || busy) return;
         if(!new File(root,"oot.z64").isFile() || !new File(root,"mm.z64").isFile()){
             new AlertDialog.Builder(this).setMessage("Import both supported ROMs first.").setPositiveButton("OK",null).show(); return;
         }
-        Intent game=new Intent(this,GameActivity.class); game.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT); startActivity(game);
+        if(withoutMods){
+            try(DataLock ignored=new DataLock(root)){}catch(IOException error){showError(error);return;}
+        }
+        Intent game=new Intent(this,GameActivity.class);game.putExtra("without-mods",withoutMods);
+        game.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);startActivity(game);
     }
     private void showError(Exception error){
         String message=error.getMessage(); if(message==null) message=error.toString(); status.setText(message);
         new AlertDialog.Builder(this).setTitle("Action could not finish").setMessage(message).setPositiveButton("Close",null).show();
     }
-    @Override protected void onResume(){super.onResume();refresh();}
+    @Override protected void onResume(){super.onResume();CrashReports.capturePreviousExit(this);refresh();}
     @Override protected void onDestroy(){worker.shutdown();super.onDestroy();}
 }
