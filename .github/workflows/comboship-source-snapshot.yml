@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for repo in sources/*; do
+          for repo in sources/comboship sources/mm-android sources/oot-android; do
             printf '%s ' "$repo"
             git -C "$repo" rev-parse HEAD
             git -C "$repo" submodule status --recursive
