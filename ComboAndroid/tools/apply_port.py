@@ -27,7 +27,7 @@ def apply(root,overlay):
         replace(root,relative,'set(CMAKE_SYSTEM_VERSION 10.0 CACHE STRING "" FORCE)','if(WIN32)\n    set(CMAKE_SYSTEM_VERSION 10.0 CACHE STRING "" FORCE)\nendif()')
     replace(root,'CMakeLists.txt','# Shared libultraship (in Combo directory)','include("${CMAKE_SOURCE_DIR}/ComboAndroid/cmake/AndroidDependencies.cmake")\n\n# Shared libultraship (in Combo directory)')
     exporter='add_subdirectory(OTRExporter ${CMAKE_BINARY_DIR}/OTRExporter)'
-    replace(root,'CMakeLists.txt',exporter,exporter+'\n# Exporter consumes engine XML/ZIP headers; inherit actual target dependencies.\ntarget_link_libraries(OTRExporter PUBLIC libultraship PNG::PNG)')
+    replace(root,'CMakeLists.txt',exporter,exporter+'\nfind_package(PNG REQUIRED)\n# Exporter consumes engine XML/ZIP headers; inherit actual target dependencies.\ntarget_link_libraries(OTRExporter PUBLIC libultraship PNG::PNG)')
     replace(root,'combo/CMakeLists.txt','add_executable(ComboShip ${COMBO_SOURCES})','''if(ANDROID)
     add_library(ComboShip SHARED ${COMBO_SOURCES}
         ${CMAKE_SOURCE_DIR}/ComboAndroid/app/src/main/cpp/AndroidEntry.cpp
@@ -70,6 +70,7 @@ int main(int argc, char** argv) {
     replace(root,picker,'#else\n#include "portable-file-dialogs.h"','#elif !defined(__ANDROID__)\n#include "portable-file-dialogs.h"')
     replace(root,picker,'#else\n    static const bool sAvailable','#elif defined(__ANDROID__)\n    return false; // Setup uses the Android document picker.\n#else\n    static const bool sAvailable')
     replace(root,picker,'#else\n    (void)winFilter;','#elif defined(__ANDROID__)\n    (void)title; (void)winFilter; (void)pfdFilters;\n    return {};\n#else\n    (void)winFilter;')
+    replace(root,'OTRExporter/OTRExporter/ExporterArchiveOTR.cpp','printf(fullPath.c_str());','printf("%s", fullPath.c_str());')
     for game in ['soh','mm']:
         for package in ['Ogg','Vorbis','Opus','OpusFile']:
             old=f'    find_package({package} REQUIRED)'
@@ -82,6 +83,8 @@ if(ANDROID)
         $<$<COMPILE_LANGUAGE:C>:-Wno-incompatible-pointer-types;-Wno-int-conversion;-Wno-implicit-int>)
 endif()
 ''')
+    subprocess.run(['git','-C',str(root),'apply','--check',str(root/'ComboAndroid/patches/mm-qol-backports.patch')],check=True)
+    subprocess.run(['git','-C',str(root),'apply',str(root/'ComboAndroid/patches/mm-qol-backports.patch')],check=True)
     changed=subprocess.check_output(['git','-C',str(root),'diff','--name-only'],text=True).splitlines()
     manifest={'upstream':PIN,'patchedFiles':{name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in changed}}
     marker.write_text(json.dumps(manifest,indent=2)+'\n')

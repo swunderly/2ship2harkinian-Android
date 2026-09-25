@@ -12,7 +12,7 @@ for program in cmake ninja python3 gradle javac; do command -v "$program" >/dev/
 "$vcpkg/vcpkg" install --triplet arm64-android zlib libpng libogg libvorbis opus opusfile
 python3 "$root/tools/apply_port.py" "$upstream"
 cmake -S "$upstream" -B "$work/build-android" -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 -DANDROID_STL=c++_shared -DCOMBO_VCPKG_PREFIX="$vcpkg/installed/arm64-android" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DENABLE_SCRIPTING=OFF -DUSE_OPENGLES=ON 2>&1 | tee "$work/android-configure.log"
-cmake --build "$work/build-android" --target ComboShip -j3 2>&1 | tee "$work/android-build.log"
+cmake --build "$work/build-android" --target ComboShip -j3 -- -k 0 2>&1 | tee "$work/android-build.log"
 # Native host ZAPD produces only support archives; it never consumes a game ROM.
 cmake -S "$upstream" -B "$work/build-assets" -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_SCRIPTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache 2>&1 | tee "$work/assets-configure.log"
 cmake --build "$work/build-assets" --target GenerateSohOtr Generate2ShipOtr -j3 2>&1 | tee "$work/assets-build.log"
