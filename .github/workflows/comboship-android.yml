@@ -1,0 +1,96 @@
+name: ComboShip Android native port
+on:
+  push:
+    branches: [comboship-android-2026-09-25]
+    paths: ['ComboAndroid/**', '.github/workflows/comboship-android.yml']
+permissions:
+  contents: read
+concurrency:
+  group: comboship-android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      ANDROID_NDK_VERSION: 28.2.13676358
+      CCACHE_DIR: ${{ github.workspace }}/.ccache-combo
+      CCACHE_MAXSIZE: 2G
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Varuuna/ComboShip
+          ref: 94eb185e4abcc2d568aa8241fa02c43cdd86c439
+          path: upstream
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: 10541e317a660f4165ba4ac2851ab54a8d4577b1
+          path: vcpkg
+          persist-credentials: false
+      - name: Install host dependencies and Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache autoconf automake libtool pkg-config libusb-dev libusb-1.0-0-dev libsdl2-dev libsdl2-net-dev libpng-dev libglew-dev nlohmann-json3-dev libtinyxml2-dev libspdlog-dev libogg-dev libopus-dev opus-tools libopusfile-dev libvorbis-dev libzip-dev zipcmp zipmerge ziptool
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$ANDROID_NDK_VERSION" "platforms;android-35" "build-tools;35.0.0" </dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/vcpkg/archives
+            .ccache-combo
+          key: combo-arm64-ndk28-v1-${{ github.sha }}
+          restore-keys: combo-arm64-ndk28-v1-
+      - name: Install target audio and image dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          ./vcpkg/vcpkg install --triplet arm64-android zlib libpng libogg libvorbis opus opusfile
+      - name: Apply reviewed Android integration
+        run: python3 ComboAndroid/tools/apply_port.py upstream
+      - name: Configure ARM64 native runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream -B build-android -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 -DANDROID_STL=c++_shared -DCOMBO_VCPKG_PREFIX="$GITHUB_WORKSPACE/vcpkg/installed/arm64-android" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DENABLE_SCRIPTING=OFF -DUSE_OPENGLES=ON 2>&1 | tee android-configure.log
+      - name: Compile actual combined runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build-android --target ComboShip -j3 2>&1 | tee android-build.log
+      - name: Archive native libraries for APK assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p native-output
+          find build-android -type f -name '*.so' -exec cp -v {} native-output/ \;
+          cp "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" native-output/
+          for name in libcomboship.so libsoh.so lib2ship.so libcomboui.so libultraship.so libSDL2.so libc++_shared.so; do test -f "native-output/$name"; done
+          sha256sum native-output/* > native-output/SHA256SUMS.txt
+      - name: Preserve diagnostics and compiled source provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: comboship-android-native-diagnostics
+          path: |
+            android-configure.log
+            android-build.log
+            upstream/.comboship-android-patched.json
+            build-android/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload native runtime only after successful compilation
+        uses: actions/upload-artifact@v4
+        with:
+          name: comboship-android-native-arm64
+          path: native-output
+          if-no-files-found: error
+          retention-days: 14
