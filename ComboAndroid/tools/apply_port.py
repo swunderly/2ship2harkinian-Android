@@ -26,6 +26,8 @@ def apply(root,overlay):
     for relative in ['CMakeLists.txt','soh/CMakeLists.txt','mm/CMakeLists.txt','OTRExporter/CMakeLists.txt']:
         replace(root,relative,'set(CMAKE_SYSTEM_VERSION 10.0 CACHE STRING "" FORCE)','if(WIN32)\n    set(CMAKE_SYSTEM_VERSION 10.0 CACHE STRING "" FORCE)\nendif()')
     replace(root,'CMakeLists.txt','# Shared libultraship (in Combo directory)','include("${CMAKE_SOURCE_DIR}/ComboAndroid/cmake/AndroidDependencies.cmake")\n\n# Shared libultraship (in Combo directory)')
+    exporter='add_subdirectory(OTRExporter ${CMAKE_BINARY_DIR}/OTRExporter)'
+    replace(root,'CMakeLists.txt',exporter,exporter+'\n# Exporter consumes engine XML/ZIP headers; inherit actual target dependencies.\ntarget_link_libraries(OTRExporter PUBLIC libultraship PNG::PNG)')
     replace(root,'combo/CMakeLists.txt','add_executable(ComboShip ${COMBO_SOURCES})','''if(ANDROID)
     add_library(ComboShip SHARED ${COMBO_SOURCES}
         ${CMAKE_SOURCE_DIR}/ComboAndroid/app/src/main/cpp/AndroidEntry.cpp
