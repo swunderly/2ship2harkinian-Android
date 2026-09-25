@@ -7,8 +7,44 @@ permissions:
   contents: read
 concurrency:
   group: comboship-android-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
+  sdk-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: release-2.32.10
+          path: sdl-reference
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.11.1'}
+      - name: Run ROM import, locking, input, and path unit tests
+        run: bash ComboAndroid/tools/run_tests.sh 2>&1 | tee unit-tests.log
+      - name: Compile Android resources and all Java against the SDK without making an APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" </dev/null
+          mkdir -p ComboAndroid/app/src/main/sdl-java
+          cp -a sdl-reference/android-project/app/src/main/java/. ComboAndroid/app/src/main/sdl-java/
+          gradle -p ComboAndroid :app:compileDebugJavaWithJavac -x :app:verifyRuntime --no-daemon --stacktrace 2>&1 | tee android-java-compile.log
+      - name: Preserve SDK and test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: comboship-android-sdk-tests
+          path: |
+            unit-tests.log
+            android-java-compile.log
+            ComboAndroid/build/host-tests/Testing/Temporary/LastTest.log
+          retention-days: 7
   native:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
@@ -18,8 +54,7 @@ jobs:
       CCACHE_MAXSIZE: 2G
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
+        with: {persist-credentials: false}
       - uses: actions/checkout@v4
         with:
           repository: Varuuna/ComboShip
@@ -32,6 +67,10 @@ jobs:
           ref: 10541e317a660f4165ba4ac2851ab54a8d4577b1
           path: vcpkg
           persist-credentials: false
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.11.1'}
       - name: Install host dependencies and Android NDK
         shell: bash
         run: |
@@ -41,41 +80,39 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$ANDROID_NDK_VERSION" "platforms;android-35" "build-tools;35.0.0" </dev/null
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: buildcache
         with:
           path: |
             ~/.cache/vcpkg/archives
             .ccache-combo
           key: combo-arm64-ndk28-v1-${{ github.sha }}
           restore-keys: combo-arm64-ndk28-v1-
-      - name: Install target audio and image dependencies
+      - name: Retain development signing identity across CI builds
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: comboship-android-development-signing-v1
+      - name: Compile native games, generate no-ROM support data, and assemble APK
         shell: bash
         run: |
           set -euo pipefail
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
-          ./vcpkg/vcpkg install --triplet arm64-android zlib libpng libogg libvorbis opus opusfile
-      - name: Apply reviewed Android integration
-        run: python3 ComboAndroid/tools/apply_port.py upstream
-      - name: Configure ARM64 native runtime
+          bash ComboAndroid/tools/build.sh "$GITHUB_WORKSPACE/upstream" "$GITHUB_WORKSPACE/vcpkg" "$GITHUB_WORKSPACE"
+      - name: Preserve completed dependency and compiler work even after failure
+        if: always() && steps.buildcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/vcpkg/archives
+            .ccache-combo
+          key: combo-arm64-ndk28-v1-${{ github.sha }}
+      - name: Archive exact port source for reproducibility
+        if: always()
         shell: bash
         run: |
-          set -euo pipefail
-          cmake -S upstream -B build-android -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 -DANDROID_STL=c++_shared -DCOMBO_VCPKG_PREFIX="$GITHUB_WORKSPACE/vcpkg/installed/arm64-android" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DENABLE_SCRIPTING=OFF -DUSE_OPENGLES=ON 2>&1 | tee android-configure.log
-      - name: Compile actual combined runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          cmake --build build-android --target ComboShip -j3 2>&1 | tee android-build.log
-      - name: Archive native libraries for APK assembly
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p native-output
-          find build-android -type f -name '*.so' -exec cp -v {} native-output/ \;
-          cp "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" native-output/
-          for name in libcomboship.so libsoh.so lib2ship.so libcomboui.so libultraship.so libSDL2.so libc++_shared.so; do test -f "native-output/$name"; done
-          sha256sum native-output/* > native-output/SHA256SUMS.txt
-      - name: Preserve diagnostics and compiled source provenance
+          tar --exclude=build --exclude=.gradle --exclude=.cxx --exclude=__pycache__ --exclude=assets --exclude=jniLibs --exclude=sdl-java -czf comboship-android-port-source.tar.gz ComboAndroid .github/workflows/comboship-android.yml
+      - name: Preserve diagnostics and source provenance
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -83,14 +120,18 @@ jobs:
           path: |
             android-configure.log
             android-build.log
+            android-package.log
+            assets-configure.log
+            assets-build.log
+            comboship-android-port-source.tar.gz
             upstream/.comboship-android-patched.json
             build-android/CMakeFiles/CMakeConfigureLog.yaml
           if-no-files-found: warn
           retention-days: 7
-      - name: Upload native runtime only after successful compilation
+      - name: Upload APK only after the full real-runtime build and checks pass
         uses: actions/upload-artifact@v4
         with:
-          name: comboship-android-native-arm64
-          path: native-output
+          name: comboship-android-apk-arm64
+          path: apk-output
           if-no-files-found: error
           retention-days: 14

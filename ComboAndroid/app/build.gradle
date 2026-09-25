@@ -1,0 +1,31 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'org.comboship.android'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'org.comboship.android'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0-dev-combo-94eb185'
+        ndk { abiFilters 'arm64-v8a' }
+    }
+    buildFeatures { buildConfig true }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    buildTypes { debug { debuggable true }; release { minifyEnabled false } }
+    // The launcher dlopens absolute paths in nativeLibraryDir.
+    packaging { jniLibs { useLegacyPackaging = true } }
+    sourceSets { main { java.srcDirs += 'src/main/sdl-java' } }
+}
+def verifyRuntime=tasks.register('verifyRuntime') {
+    doLast {
+        ['libcomboship.so','libsoh.so','lib2ship.so','libcomboui.so','libultraship.so','libSDL2.so','libc++_shared.so'].each {
+            if(!file("src/main/jniLibs/arm64-v8a/$it").isFile())throw new GradleException("Missing native runtime $it. Run the complete build, not a frontend-only build.")
+        }
+        if(!file('src/main/assets/support-manifest.json').isFile())throw new GradleException('Missing generated support manifest.')
+        fileTree('src/main/assets').matching { include '**/*.z64','**/*.n64','**/*.v64','**/mm.o2r','**/oot.o2r','**/oot-mq.o2r' }.files.each {
+            throw new GradleException("ROM-derived game data must not be bundled: $it")
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn verifyRuntime }
